@@ -1,4 +1,4 @@
-function new(x, y, height, width, sprite, facing)
+function new(x, y, height, width, facing)
   return {
     x = x,
     y = y,
@@ -6,11 +6,14 @@ function new(x, y, height, width, sprite, facing)
     width = width,
     facing = facing or 270,
     x_spd = 0,
-    y_spd = 0,
-    sprite = sprite
+    y_spd = 0
   }
 end
 
+function vector(char)
+  hyp = sqrt(char.x_spd*char.X_spd + char.y_spd*char.y_spd)
+  return char.x_spd / hyp, char.y_spd / hyp
+end
 
 function move(char)
   char.x = char.x + char.x_spd
@@ -41,11 +44,11 @@ end
 
 -- collision
 function hitbox(char)
- return
-   char.x - char.width,
-   char.x + char.width - 1,
-   char.y - char.height,
-   char.y + char.height - 1
+  return
+    char.x - char.width,
+    char.x + max(char.width - 1, 0),
+    char.y - char.height,
+    char.y + max(char.height - 1, 0)
 end
 
 function collision(obj1, obj2)
