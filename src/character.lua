@@ -48,14 +48,13 @@ function hitbox(char)
    char.y + char.height - 1
 end
 
--- needs work
 function collision(obj1, obj2)
  obj1_left, obj1_right, obj1_top, obj1_bottom = hitbox(obj1)
  obj2_left, obj2_right, obj2_top, obj2_bottom = hitbox(obj2)
  return (
    obj1_left < obj2_right and
    obj1_right > obj2_left and
-   obj1_top < obj2_top and
+   obj1_top < obj2_bottom and
    obj1_bottom > obj2_top
  )
 end
