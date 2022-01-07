@@ -15,8 +15,10 @@ end
 
 function _draw()
   cls()
+  map()
   draw_hitbox(player, 8)
   draw_hitbox(enemy, 10)
+  print(DEBUG[1])
 end
 
 function draw_hitbox(char, color)
@@ -28,7 +30,6 @@ function draw_hitbox(char, color)
   end
 end
 
-
 function sign(number)
   if number > 0
   then
@@ -36,10 +37,10 @@ function sign(number)
    else if number < 0
    then
      return -1
-    end
-    return 0
+   end
+  end
+  return 0
 end
-
 
 function new(x, y, height, width, facing)
   return {
@@ -84,10 +85,15 @@ function air_resistance(char)
 end
 
 function apply_physics(char)
-  floor_friction(char)
-  wall_friction(char)
-  gravity(char)
-  air_resistance(char)
+  if is_map(char.x, char.y - 1)
+  then
+    v = 1
+  else
+    gravity(char)
+  end
+  --floor_friction(char)
+  --wall_friction(char)
+  --air_resistance(char)
 end
 
 -- collision
@@ -110,26 +116,27 @@ function collision(obj1, obj2)
    )
 end
 
-function decollide(char, checker, check_against)
-  x_sign = sign(char.x_spd)
-  y_sign = sign(char.y_spd)
-  if x_sign == 1
-  then
-    x_comp = max
-  else
-  then
-    x_comp = min
-  end
-  if y_sign == 1
-  then
-    y_comp = max
-  else
-  then
-    y_comp = min
-  end
-  while checker(char, check_against)
+function line_points(x1, y1, x2, y2)
+  m, points, i = (y1 - y2)/(x1 - x2), {}, 1
+  for cx=x1,x2
   do
-    char.x_spd = char.x_spd - x_comp(x_sign, 0)
-    char.y_spd = char.y_spd - y_comp(y_sign, 0)
+    points[i] = {cx, m*cx + y1}
+    i = i + 1
   end
+end
+
+function is_map(x, y)
+  return fget(mget(flr(x / 8), flr(y / 8), 1))
+end
+
+function check_collision(char, check)
+  last_x, last_y = char.x, char.y
+  for x, y in line_points(char.x, char.y, char.x + char.x_spd, char.y + char.y_spd)
+  do
+    if check(x, y)
+    then
+      return {last_x, last_y}
+    end
+  end
+  return false
 end
