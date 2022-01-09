@@ -2,26 +2,86 @@ pico-8 cartridge // http://www.pico-8.com
 version 30
 __lua__
 
+-- globals
+map_flag = 1
+floor_flag = 6
+
+-- pico functions
 function _init()
   frame = 0
   actors = {}
-  player = actor(10, 64, 6, 8, 72, 5)
-  memcpy(0x2000,
-			0x1000+((1+1)%4)*0x800,
-			0x800)
+  player = actor(50, 64, 6, 8, 72, 5)
+  player.y_spd = 3
+  player.x_spd = 3
+  do_move = false
 end
 
 function _update()
   frame = frame + 1 % 30
-  player:move()
+  input()
 end
 
 function _draw()
   cls()
+  map()
   print(time())
-  player:draw()
+  for a in all(actors)
+  do
+    a:draw()
+    a:move()
+  end
 end
 
+-- input handling
+function input()
+  if btn(0)
+  then
+    player.x_spd -= .5
+  end
+  if btn(1)
+  then
+    player.x_spd += .5
+  end
+  if btnp(2) and player.state > 0
+  then
+    player.y_spd = -5
+    player.state = 0
+  end
+end
+
+-- helper functions
+function sign(number)
+  if number > 0
+  then
+    return 1
+  elseif number < 0
+  then
+    return -1
+  end
+  return 0
+end
+
+function vector(x, y)
+  if x == 0 and y == 0
+  then
+    return {0, 0}
+  end
+  local hyp = sqrt(x*x + y*y)
+  return {x / hyp, y / hyp}
+end
+
+-- map system
+function check_cell_flag(x, y, flag, ignore)
+  local x, y= flr(x/8), flr(y/8)
+  local collide = fget(mget(x, y), flag)
+  if collide
+  then
+    collide = not fget(mget(x, y), ignore)
+  end
+  return collide
+end
+
+-- actor system
 function actor(x, y, width, height, frame, frames, facing)
   local a = {
     x=x,
@@ -33,23 +93,92 @@ function actor(x, y, width, height, frame, frames, facing)
     frame=frame,
     frames=frames,
     facing=(facing == nil) and facing or 1,
+    state=0,
     move=update_move,
     draw=draw_move
   }
   add(actors, a)
+  return a
 end
 
 function draw_move(a)
-  sprite = (a.x_spd != 0) and frame/2 % a.frames or 0
-  spr(a.frame + sprite, a.x - 4, a.y - 4)
+  local sprite = (a.x_spd != 0) and frame/2 % a.frames or 0
+  spr(a.frame + sprite, a.x - a.width, a.y - a.height, 1, 1)
+end
+
+function corners(a)
+  local x, y = sign(a.x_spd), sign(a.y_spd)
+  local w, h = x*(a.width - 1), y*(a.height - 1)
+  return a.x-w, a.y+h, a.x+w, a.y+h, a.x+w, a.y-h
 end
 
 function update_move(a)
+  -- sign of x and y speeds
+  local sx, sy = sign(a.x_spd), sign(a.y_spd)
+  -- static values
+  local w, h = sx*(a.width - 1), sy*(a.height - 1)
+  local cx1, cy1, cx2, cy2, cx3, cy3 = corners(a)
+  local rx1, ry1, rx2, ry2, rx3, ry3 = cx1 + a.x_spd, cy1 + a.y_spd, cx2 + a.x_spd, cy2 + a.y_spd, cx3 + a.x_spd, cy3 + a.y_spd
+  line(cx2, cy2, rx2, ry2, 12)
+  --pset(cx1, cy1, 13)
+  pset(cx2, cy2, 13)
+  --pset (cx3, cy3, 13)
+  --pset(rx1, ry1, 14)
+  pset(rx2, ry2, 14)
+  --pset(rx3, ry3, 14)
 
+  if abs(a.x_spd) >= 1
+  then
+    m = a.y_spd/a.x_spd
+    reset()
+    --print("cx,cy:" .. cx2 .. ",".. cy2)
+    --print("m=" .. m)
+    --print("add x " .. sx)  -- should match x_spd sign
+    --print("add y " .. abs(m)*sy)  -- should match y_spd sign
+    fy = abs(m)*sy
+    for x=1,abs(a.x_spd)
+    do
+      x = x*sx
+      lx = x+cx2
+      mx = m*x
+      ly = mx + cy2
+      print("lx,ly:" .. lx .. "," .. ly)
+      if check_cell_flag(lx, ly, map_flag)
+      then
+        a.x_spd = 0
+        a.y_spd = 0
+        break
+      end
+      a.x += sx
+      a.y += fy
+    end
+  else
+    local sy = sign(a.y_spd)
+    local x = cx2
+    for y=1,abs(a.y_spd)
+    do
+      y = y*sy + cy2
+      local ignore = (a.y_spd < 0) and floor_flag or nil
+      if check_cell_flag(x, y, map_flag, ignore)
+      then
+        a.y_spd = 0
+        break
+      end
+      a.y += sy
+    end
+  end
+  if check_cell_flag(a.x, a.y + a.height, floor_flag)
+  then
+    a.state = 1
+  end
+  if a.state <= 0
+  then
+    a.y_spd = min(a.y_spd + 1, 4)
+  else
+    a.x_spd *= .86
+  end
+  print(a.state)
 end
-
-
-
 
 __gfx__
 000000002222222244444444bbbbbbbb00000000000aa000d7777777d66667d666666667d6666667cccccccccccccccccc5ccccccc5cccc5f777777767766666
@@ -310,7 +439,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444
 
 __gff__
-0002020200001202020200000000020202020000000002010000020200000000020202020200000000420000000002021242020202024242000000000200020260706060700000000000000000000000200220006000000004040c0c04200000a0000060a0a0a0a00000000000000000a0000808b00000000000000000000002
+0002024200001202020200000000020202020000000002010000020200000000020202020200000000420000000002021242020202024242000000000200020260706060700000000000000000000000200220006000000004040c0c04200000a0000060a0a0a0a00000000000000000a0000808b00000000000000000000002
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005d09000900090009430000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002828
