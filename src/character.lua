@@ -13,7 +13,7 @@ function _init()
   player = actor(30, 64, 6, 8, 72, 5)
   player.y_spd = -5
   player.x_spd = 0
-  do_move = false
+  p_scarf = scarf(player.x, player.x)
 end
 
 function _update()
@@ -31,10 +31,18 @@ function _draw()
     a:draw()
   end
   draw_scarf()
+  if player.action == "scarf"
+  then
+    player.draw = draw_use_scarf
+  end
 end
 
 -- input handling
 function input()
+  if player.action != nil
+  then
+    return
+  end
   if player.state > 0
   then
     if btn(0)
@@ -56,6 +64,24 @@ function input()
     then
       player.x_spd *= .1
     end
+  end
+  if btnp(4)
+  then
+    player.action = "scarf"
+  end
+  if btn(0, 1)
+  then
+    p_scarf.degree = (p_scarf.degree + 10) % 360
+  elseif btn(1, 1)
+  then
+    p_scarf.degree = (p_scarf.degree - 5) % 360
+  end
+  if btn(2, 1)
+  then
+    p_scarf.distance = min(p_scarf.distance + 4, 50)
+  elseif btn(3, 1)
+  then
+    p_scarf.distance = max(p_scarf.distance - 4, 0)
   end
 end
 
@@ -105,10 +131,18 @@ function actor(x, y, width, height, frame, frames, facing)
     facing=(facing == nil) and facing or 1,
     state=0,
     move=update_move,
-    draw=draw_move
+    draw=draw_move,
+    action=nil
   }
   add(actors, a)
   return a
+end
+
+function scarf(x, y)
+  local s = {
+    x=x, y=y, degree=315, distance=50, unfurled=0, t=0
+   }
+  return s
 end
 
 function draw_move(a)
@@ -117,10 +151,32 @@ function draw_move(a)
   spr(a.frame + sprite, a.x - a.width - ox, a.y - a.height, 1, 1, flip)
 end
 
+function draw_use_scarf(a)
+  local flip = a.facing != 1
+  local p = cos(p_scarf.t/30) + 1
+  local u = p_scarf.distance - p*p_scarf.distance/2
+  x = (cos(p_scarf.degree/360) * u) + a.x
+  y = (sin(p_scarf.degree/360) * u) + a.y
+  -- check collision
+  line(a.x, a.y + 1, x, y, 12)
+  p_scarf.t += 1
+  local ox = (a.facing != 1) and 1 or 0
+  spr(a.frame + 1, a.x - a.width - ox, a.y - a.height, 1, 1, a.facing != 1)
+  if p_scarf.t > 30
+  then
+    p_scarf.t = 0
+    a.action = nil
+    a.draw=draw_move
+  end
+end
+
 function draw_scarf()
-  local px, py = player.x - player.facing*(player.width-1), player.y+1
-  local ry = (player.y_spd == 0 and player.x_spd == 0) and 1 or frame/3 % 2 - 1
-  line(px, py, px - player.x_spd - player.facing, py + ry, 2)
+  if player.action == nil
+  then
+    local px, py = player.x - player.facing*(player.width-1), player.y+1
+    local ry = (player.y_spd == 0 and player.x_spd == 0) and 1 or frame/3 % 2 - 1
+    line(px, py, px - player.x_spd - player.facing, py + ry, 2)
+  end
 end
 
 function corners(a)
