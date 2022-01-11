@@ -11,9 +11,8 @@ function _init()
   frame = 0
   actors = {}
   player = actor(30, 64, 6, 8, 72, 5)
-  player.y_spd = -5
   player.x_spd = 0
-  p_scarf = scarf(player.x, player.x)
+  player.y_spd = 2
 end
 
 function _update()
@@ -27,61 +26,29 @@ function _draw()
   print(time())
   for a in all(actors)
   do
-    a:move()
     a:draw()
+    a:move()
   end
-  draw_scarf()
-  if player.action == "scarf"
-  then
-    player.draw = draw_use_scarf
-  end
+  print("x " .. player.x)
+  print("y " .. player.y)
+  pset(player.x, player.y, 12)
+  print("xspd " .. player.x_spd)
+  print("yspd " .. player.y_spd)
 end
 
 -- input handling
 function input()
-  if player.action != nil
+  if btn(0)
   then
-    return
+    player.x_spd = max(player.x_spd - 1, -2.5)
   end
-  if player.state > 0
+  if btn(1)
   then
-    if btn(0)
-    then
-      player.x_spd = max(player.x_spd - .5, -2)
-      player.facing = -1
-    end
-    if btn(1)
-    then
-      player.x_spd = min(player.x_spd + .5, 2)
-      player.facing = 1
-    end
-    if btnp(2)
-    then
-      player.y_spd = -5
-      player.state = 0
-    end
-    if btn(3)
-    then
-      player.x_spd *= .1
-    end
+    player.x_spd = min(player.x_spd + 1, 2.5)
   end
-  if btnp(4)
+  if btnp(2)
   then
-    player.action = "scarf"
-  end
-  if btn(0, 1)
-  then
-    p_scarf.degree = (p_scarf.degree + 10) % 360
-  elseif btn(1, 1)
-  then
-    p_scarf.degree = (p_scarf.degree - 5) % 360
-  end
-  if btn(2, 1)
-  then
-    p_scarf.distance = min(p_scarf.distance + 4, 50)
-  elseif btn(3, 1)
-  then
-    p_scarf.distance = max(p_scarf.distance - 4, 0)
+    player.y_spd = -5
   end
 end
 
@@ -95,15 +62,6 @@ function sign(number)
     return -1
   end
   return 0
-end
-
-function vector(x, y)
-  if x == 0 and y == 0
-  then
-    return {0, 0}
-  end
-  local hyp = sqrt(x*x + y*y)
-  return {x / hyp, y / hyp}
 end
 
 -- map system
@@ -129,20 +87,11 @@ function actor(x, y, width, height, frame, frames, facing)
     frame=frame,
     frames=frames,
     facing=(facing == nil) and facing or 1,
-    state=0,
     move=update_move,
     draw=draw_move,
-    action=nil
   }
   add(actors, a)
   return a
-end
-
-function scarf(x, y)
-  local s = {
-    x=x, y=y, degree=315, distance=50, unfurled=0, t=0
-   }
-  return s
 end
 
 function draw_move(a)
@@ -151,121 +100,54 @@ function draw_move(a)
   spr(a.frame + sprite, a.x - a.width - ox, a.y - a.height, 1, 1, flip)
 end
 
-function draw_use_scarf(a)
-  local flip = a.facing != 1
-  local p = cos(p_scarf.t/30) + 1
-  local u = p_scarf.distance - p*p_scarf.distance/2
-  x = (cos(p_scarf.degree/360) * u) + a.x
-  y = (sin(p_scarf.degree/360) * u) + a.y
-  -- check collision
-  line(a.x, a.y + 1, x, y, 12)
-  p_scarf.t += 1
-  local ox = (a.facing != 1) and 1 or 0
-  spr(a.frame + 1, a.x - a.width - ox, a.y - a.height, 1, 1, a.facing != 1)
-  if p_scarf.t > 30
-  then
-    p_scarf.t = 0
-    a.action = nil
-    a.draw=draw_move
-  end
-end
-
-function draw_scarf()
-  if player.action == nil
-  then
-    local px, py = player.x - player.facing*(player.width-1), player.y+1
-    local ry = (player.y_spd == 0 and player.x_spd == 0) and 1 or frame/3 % 2 - 1
-    line(px, py, px - player.x_spd - player.facing, py + ry, 2)
-  end
-end
-
-function corners(a)
-  local x, y = sign(a.x_spd), sign(a.y_spd)
-  local w, h = x*(a.width - 1), y*(a.height - 1)
-  return a.x-w, a.y+h, a.x+w, a.y+h, a.x+w, a.y-h
-end
-
 function update_move(a)
-  -- sign of x and y speeds
-  local sx, sy = sign(a.x_spd), sign(a.y_spd)
-  -- static values
-  local w, h = sx*(a.width - 1), sy*(a.height - 1)
-  local cx1, cy1, cx2, cy2, cx3, cy3 = corners(a)
-  local rx1, ry1, rx2, ry2, rx3, ry3 = cx1 + a.x_spd, cy1 + a.y_spd, cx2 + a.x_spd, cy2 + a.y_spd, cx3 + a.x_spd, cy3 + a.y_spd
-  --line(cx2, cy2, rx2, ry2, 12)
-  --pset(cx1, cy1, 13)
-  --pset(cx2, cy2, 13)
-  --pset (cx3, cy3, 13)
-  --pset(rx1, ry1, 14)
-  --pset(rx2, ry2, 14)
-  --pset(rx3, ry3, 14)
+  if player.x_spd == 0 and player.y_spd == 0
+  then
 
-  local jump_through = (a.y_spd < 0) and floor_flag or nil
-  -- no jump through, yet
-  if abs(a.x_spd) > 1
-  then
-    m = a.y_spd/a.x_spd
-    --print("cx,cy:" .. cx2 .. ",".. cy2)
-    --print("m=" .. m)
-    --print("add x " .. sx)  -- should match x_spd sign
-    --print("add y " .. abs(m)*sy)  -- should match y_spd sign
-    fy = abs(m)*sy
-    for x=1,abs(a.x_spd)
+  else
+    local collide = false
+    local angle = atan2(a.x_spd, a.y_spd)
+    local ix, iy = cos(angle), sin(angle)
+    local cx, cy = sign(ix) * a.width + a.x, sign(iy) * a.height + a.y
+    local rx, ry = cx + a.x_spd, cy + a.y_spd
+    local fx, fy = cx + ix, cy + ix
+    for i=0,(a.x_spd != 0) and (a.x_spd / ix) or (a.y_spd / iy)
     do
-      x = x*sx
-      lx = x+cx2
-      mx = m*x
-      ly = mx + cy2
-      --print("lx,ly:" .. lx .. "," .. ly)
-      -- local ignore = a.y_spd > 0 and floor_flag or nil
-      -- might be wrong
-      if check_cell_flag(lx, ly, map_flag, ignore)
+      pset(fx, fy, 11)
+
+      if check_cell_flag(fx, fy, map_flag)
       then
-        a.x_spd = 0
-        a.y_spd = 0
+        -- do small bounce? reverse directions and halve
+        a.x = a.x + ix*i
+        a.y = a.y + iy*i
+        --a.x_spd = 0
+        --a.y_spd = 0
+        collide = true
         break
       end
-      a.x += sx
-      a.y += fy
+      fx += ix
+      fy += iy
+
     end
-  else
-    local x = cx2
-    for y=1,abs(a.y_spd)
-    do
-      y = y*sy + cy2
-      local c = check_cell_flag(x, y, map_flag, jump_through)
-      if c
-      then
-        a.y_spd = 0
-        break
-      end
-      a.y += sy
-    end
-  end
-  if check_cell_flag(a.x, a.y + a.height, floor_flag, jump_through)
-  then
-    while check_cell_flag(a.x, a.y + a.height - 1, floor_flag)
-    do
-      pset(a.x, a.y + a.height, 12)
-      a.y -= .125
-    end
-    a.state = 1  -- get actual ground sprite flag
-  else
-    a.state = 0  -- get actual bg sprite flag
-  end
-  if a.state <= 0
-  then
-    a.y_spd = min(a.y_spd + .5, 4)
-    a.x_spd *= .97
-  else
-    if abs(a.x_spd) > .4
+    print(collide)
+    if collide
     then
-      a.x_spd *= .86
-    else
       a.x_spd = 0
+      a.y_spd = 0
+    else
+      a.x += a.x_spd
+      a.y += a.y_spd
     end
   end
-  --print(a.state)
+  c = check_cell_flag(a.x, a.y + a.height, floor_flag)
+  print(c)
+  if c
+  then
+    a.x_spd *= .83
+  else
+    a.y_spd = min(a.y_spd + 1, 4)
+    a.x_spd *= .97
+  end
 end
 
 __gfx__
