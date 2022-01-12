@@ -10,7 +10,7 @@ floor_flag = 6
 function _init()
   frame = 0
   actors = {}
-  player = actor(30, 64, 6, 8, 72, 5)
+  player = actor(30, 64, 4, 8, 72, 5)
   player.x_spd = 0
   player.y_spd = 2
 end
@@ -41,10 +41,12 @@ function input()
   if btn(0)
   then
     player.x_spd = max(player.x_spd - 1, -2.5)
+    player.facing = -1
   end
   if btn(1)
   then
     player.x_spd = min(player.x_spd + 1, 2.5)
+    player.facing = 1
   end
   if btnp(2)
   then
@@ -100,37 +102,82 @@ function draw_move(a)
   spr(a.frame + sprite, a.x - a.width - ox, a.y - a.height, 1, 1, flip)
 end
 
+function collision_ray(a)
+  local collide, x, y = false, 0, 0
+  local angle = atan2(a.x_spd, a.y_spd)
+  local ix, iy = cos(angle), sin(angle)
+  local cx, cy = sign(ix) * a.width + a.x, sign(iy) * a.height + a.y
+  local rx, ry = cx + a.x_spd, cy + a.y_spd
+  for i=0,(a.x_spd != 0) and (a.x_spd / ix) or (a.y_spd / iy)
+  do
+    if check_cell_flag(cx + x, cy + y, map_flag)
+    then
+      collide = true
+      break
+    end
+    x += ix
+    y += iy
+  end
+  return collide, x, y
+end
+
+function collision_ray2(sx, sy, vx, vy, collide)
+  local collide, x, y = false, 0, 0
+  if vx != 0 and vy != 0
+  then
+    local angle = atan2(vx, vy)
+    local ix, iy = cos(angle), sin(angle)
+    local rx, ry = cx + vx, cy + vy
+    for i=0,(vx != 0) and vx/ix or vy/iy
+    do
+      if collide(sx + x, sy + y)
+      then
+        collide = true
+        break
+      end
+      x += ix
+      y += iy
+  end
+  return collide, x, y
+end
+
 function update_move(a)
   if player.x_spd == 0 and player.y_spd == 0
   then
 
   else
+    --[[
     local collide = false
     local angle = atan2(a.x_spd, a.y_spd)
     local ix, iy = cos(angle), sin(angle)
     local cx, cy = sign(ix) * a.width + a.x, sign(iy) * a.height + a.y
-    pset(cx ,cy, 12)
     local rx, ry = cx + a.x_spd, cy + a.y_spd
-    local fx, fy = cx + ix, cy + ix
     for i=0,(a.x_spd != 0) and (a.x_spd / ix) or (a.y_spd / iy)
     do
 
-      if check_cell_flag(fx, fy, map_flag)
+      if check_cell_flag(cx, cy, map_flag)
       then
         -- do small bounce? reverse directions and halve
-        a.x = a.x + ix*i
-        a.y = a.y + iy*i
+        a.x += ix*i
+        a.y += iy*i
         a.x_spd = 0
         a.y_spd = 0
         collide = true
         break
       end
-      fx += ix
-      fy += iy
-
+      cx += ix
+      cy += iy
     end
     a.x += a.x_spd
-    a.y += a.y_spd
+    a.y += a.y_spd]]--
+    local collide, x, y = collision_ray(a)
+    a.x += x
+    a.y += y
+    if collide
+    then
+      a.x_spd = 0
+      a.y_spd = 0
+    end
   end
   if check_cell_flag(a.x, a.y + a.height, map_flag)
   then
