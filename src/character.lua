@@ -109,19 +109,19 @@ function update_move(a)
     local angle = atan2(a.x_spd, a.y_spd)
     local ix, iy = cos(angle), sin(angle)
     local cx, cy = sign(ix) * a.width + a.x, sign(iy) * a.height + a.y
+    pset(cx ,cy, 12)
     local rx, ry = cx + a.x_spd, cy + a.y_spd
     local fx, fy = cx + ix, cy + ix
     for i=0,(a.x_spd != 0) and (a.x_spd / ix) or (a.y_spd / iy)
     do
-      pset(fx, fy, 11)
 
       if check_cell_flag(fx, fy, map_flag)
       then
         -- do small bounce? reverse directions and halve
         a.x = a.x + ix*i
         a.y = a.y + iy*i
-        --a.x_spd = 0
-        --a.y_spd = 0
+        a.x_spd = 0
+        a.y_spd = 0
         collide = true
         break
       end
@@ -129,21 +129,12 @@ function update_move(a)
       fy += iy
 
     end
-    print(collide)
-    if collide
-    then
-      a.x_spd = 0
-      a.y_spd = 0
-    else
-      a.x += a.x_spd
-      a.y += a.y_spd
-    end
+    a.x += a.x_spd
+    a.y += a.y_spd
   end
-  c = check_cell_flag(a.x, a.y + a.height, floor_flag)
-  print(c)
-  if c
+  if check_cell_flag(a.x, a.y + a.height, map_flag)
   then
-    a.x_spd *= .83
+    a.x_spd *= .7
   else
     a.y_spd = min(a.y_spd + 1, 4)
     a.x_spd *= .97
