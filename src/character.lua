@@ -18,22 +18,19 @@ end
 function _update()
   frame = frame + 1 % 30
   input()
+  for a in all(actors)
+  do
+    a:move()
+  end
 end
 
 function _draw()
   cls()
   map()
-  print(time())
   for a in all(actors)
   do
     a:draw()
-    a:move()
   end
-  print("x " .. player.x)
-  print("y " .. player.y)
-  pset(player.x, player.y, 12)
-  print("xspd " .. player.x_spd)
-  print("yspd " .. player.y_spd)
 end
 
 -- input handling
@@ -96,88 +93,19 @@ function actor(x, y, width, height, frame, frames, facing)
   return a
 end
 
-function draw_move(a)
-  local sprite, flip = (a.x_spd != 0) and frame/2 % a.frames or 0, a.facing != 1
-  local ox = (flip == true) and 1 or 0
-  spr(a.frame + sprite, a.x - a.width - ox, a.y - a.height, 1, 1, flip)
-end
-
-function collision_ray(a)
-  local collide, x, y = false, 0, 0
-  local angle = atan2(a.x_spd, a.y_spd)
-  local ix, iy = cos(angle), sin(angle)
-  local cx, cy = sign(ix) * a.width + a.x, sign(iy) * a.height + a.y
-  local rx, ry = cx + a.x_spd, cy + a.y_spd
-  for i=0,(a.x_spd != 0) and (a.x_spd / ix) or (a.y_spd / iy)
-  do
-    if check_cell_flag(cx + x, cy + y, map_flag)
-    then
-      collide = true
-      break
-    end
-    x += ix
-    y += iy
-  end
-  return collide, x, y
-end
-
-function collision_ray2(sx, sy, vx, vy, collide)
-  local collide, x, y = false, 0, 0
-  if vx != 0 and vy != 0
-  then
-    local angle = atan2(vx, vy)
-    local ix, iy = cos(angle), sin(angle)
-    local rx, ry = cx + vx, cy + vy
-    for i=0,(vx != 0) and vx/ix or vy/iy
-    do
-      if collide(sx + x, sy + y)
-      then
-        collide = true
-        break
-      end
-      x += ix
-      y += iy
-  end
-  return collide, x, y
-end
-
 function update_move(a)
-  if player.x_spd == 0 and player.y_spd == 0
+  local collide, x, y = collision_ray(
+    a.x + sign(a.x_spd) * a.width,
+    a.y + sign(a.y_spd) * a.height,
+    a.x_spd, a.y_spd, collide_map
+  )
+  a.x += x
+  a.y += y
+  -- improve reaction to collision
+  if collide
   then
-
-  else
-    --[[
-    local collide = false
-    local angle = atan2(a.x_spd, a.y_spd)
-    local ix, iy = cos(angle), sin(angle)
-    local cx, cy = sign(ix) * a.width + a.x, sign(iy) * a.height + a.y
-    local rx, ry = cx + a.x_spd, cy + a.y_spd
-    for i=0,(a.x_spd != 0) and (a.x_spd / ix) or (a.y_spd / iy)
-    do
-
-      if check_cell_flag(cx, cy, map_flag)
-      then
-        -- do small bounce? reverse directions and halve
-        a.x += ix*i
-        a.y += iy*i
-        a.x_spd = 0
-        a.y_spd = 0
-        collide = true
-        break
-      end
-      cx += ix
-      cy += iy
-    end
-    a.x += a.x_spd
-    a.y += a.y_spd]]--
-    local collide, x, y = collision_ray(a)
-    a.x += x
-    a.y += y
-    if collide
-    then
-      a.x_spd = 0
-      a.y_spd = 0
-    end
+    a.x_spd = 0
+    a.y_spd = 0
   end
   if check_cell_flag(a.x, a.y + a.height, map_flag)
   then
@@ -187,6 +115,39 @@ function update_move(a)
     a.x_spd *= .97
   end
 end
+
+function draw_move(a)
+  local sprite, flip = (a.x_spd != 0) and frame/2 % a.frames or 0, a.facing != 1
+  local ox = (flip == true) and 1 or 0
+  spr(a.frame + sprite, a.x - a.width - ox, a.y - a.height, 1, 1, flip)
+end
+
+-- collision
+function collide_map(x, y)
+  return check_cell_flag(x, y, map_flag)
+end
+
+function collision_ray(sx, sy, vx, vy, collide)
+  local collided, x, y = false, 0, 0
+  if vx != 0 or vy != 0
+  then
+    local angle = atan2(vx, vy)
+    local ix, iy, rx, ry = cos(angle), sin(angle), sx + vx, sy + vy
+    for i=0,(vx != 0) and vx/ix or vy/iy
+    do
+      if collide(sx + x, sy + y)
+      then
+        collided = true
+        break
+      end
+      x += ix
+      y += iy
+    end
+  end
+  return collided, x, y
+end
+
+
 
 __gfx__
 000000002222222244444444bbbbbbbb00000000000aa000d7777777d66667d666666667d6666667cccccccccccccccccc5ccccccc5cccc5f777777767766666
