@@ -1,5 +1,5 @@
 pico-8 cartridge // http://www.pico-8.com
-version 30
+version 34
 __lua__
 
 -- globals
@@ -10,18 +10,12 @@ floor_flag = 6
 function _init()
   frame = 0
   actors = {}
-  player = actor(30, 64, 4, 8, 72, 5)
-  player.x_spd = 0
-  player.y_spd = 2
+  player = actor(40, 64, 4, 8, 72, 5)
 end
 
 function _update()
   frame = frame + 1 % 30
   input()
-  for a in all(actors)
-  do
-    a:move()
-  end
 end
 
 function _draw()
@@ -29,6 +23,7 @@ function _draw()
   map()
   for a in all(actors)
   do
+    a:move()
     a:draw()
   end
 end
@@ -37,17 +32,17 @@ end
 function input()
   if btn(0)
   then
-    player.x_spd = max(player.x_spd - 1, -2.5)
+    player.xspd = max(player.xspd - 1, -2.5)
     player.facing = -1
   end
   if btn(1)
   then
-    player.x_spd = min(player.x_spd + 1, 2.5)
+    player.xspd = min(player.xspd + 1, 2.5)
     player.facing = 1
   end
   if btnp(2)
   then
-    player.y_spd = -5
+    player.yspd = -5
   end
 end
 
@@ -66,6 +61,10 @@ end
 -- map system
 function check_cell_flag(x, y, flag, ignore)
   local x, y= flr(x/8), flr(y/8)
+  if flag == nil
+  then
+    return fget(mget(x, y))
+  end
   local collide = fget(mget(x, y), flag)
   if collide
   then
@@ -79,45 +78,65 @@ function actor(x, y, width, height, frame, frames, facing)
   local a = {
     x=x,
     y=y,
-    x_spd=0,
-    y_spd=0,
+    xspd=0,
+    yspd=0,
     height=flr(height/2),
     width=flr(width/2),
     frame=frame,
     frames=frames,
-    facing=(facing == nil) and facing or 1,
+    facing=(facing != nil) and facing or 1,
     move=update_move,
     draw=draw_move,
+    iframe=0
   }
   add(actors, a)
   return a
 end
 
 function update_move(a)
+  --[[
+  check for map tiles around actor
+  ]]--
+  -- sensor points
+  local y_left, y_right, floor_y, ceil_y = a.x - a.width + 1, a.x + a.width, a.y + a.height, a.y - a.height
+  local left_x, right_x, x_bottom, x_top = a.x - a.width, a.x + a.width + 1, a.y + a.height - 1, a.y - a.height + 1
+  local floor = check_cell_flag(y_left, floor_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag)
+  local ceil = check_cell_flag(y_left, ceil_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag)
+  local left = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag)
+  local right = check_cell_flag(right_x, x_bottom, map_flag) or check_cell_flag(right_x, x_top, map_flag)
+  -- TODO: if floor, prevent falling and apply x friction
+  if floor
+  then
+    a.yspd = min(0, a.yspd)
+    a.xspd *= .7  -- TODO: adjust friction
+  -- apply x friction
+  elseif ceil
+  then
+
+  -- apply air friction
+  else
+    a.yspd = min(a.yspd + 1, 4)
+    a.xspd *= .97
+  end
+  -- hitting a wall
+  if left or right
+  then
+    -- a.yspd *= .2
+    a.xspd = 0
+  end
+  -- see if there are any collisions in the way
+  local sign_x, sign_y = sign(a.xspd), sign(a.yspd)
   local collide, x, y = collision_ray(
-    a.x + sign(a.x_spd) * a.width,
-    a.y + sign(a.y_spd) * a.height,
-    a.x_spd, a.y_spd, collide_map
+    a.x + sign_x * a.width,
+    a.y + sign_y * a.height,
+    a.xspd, a.yspd, collide_map
   )
   a.x += x
   a.y += y
-  -- improve reaction to collision
-  if collide
-  then
-    a.x_spd = 0
-    a.y_spd = 0
-  end
-  if check_cell_flag(a.x, a.y + a.height, map_flag)
-  then
-    a.x_spd *= .7
-  else
-    a.y_spd = min(a.y_spd + 1, 4)
-    a.x_spd *= .97
-  end
 end
 
 function draw_move(a)
-  local sprite, flip = (a.x_spd != 0) and frame/2 % a.frames or 0, a.facing != 1
+  local sprite, flip = (a.xspd != 0) and frame/2 % a.frames or 0, a.facing != 1
   local ox = (flip == true) and 1 or 0
   spr(a.frame + sprite, a.x - a.width - ox, a.y - a.height, 1, 1, flip)
 end
@@ -408,7 +427,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444
 
 __gff__
-0002024200001202020200000000020202020000000002010000020200000000020202020200000000420000000002021242020202024242000000000200020260706060700000000000000000000000200220006000000004040c0c04200000a0000060a0a0a0a00000000000000000a0000808b00000000000000000000002
+0002024200001202020200000000020202020000000002010000020200000000020202020200020202420000000002021242020202024242020200000200020260706060700000000000000000000000200220006000000004040c0c04200000a0000060a0a0a0a00000000000000000a0000808b00000000000000000000002
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005d09000900090009430000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002828
@@ -554,3 +573,4 @@ __music__
 00 41414144
 00 41414144
 00 41414144
+

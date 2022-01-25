@@ -10,8 +10,7 @@ floor_flag = 6
 function _init()
   frame = 0
   actors = {}
-  player = actor(10, 50, 6, 8, 72, 5)
-  player.y_spd = 1
+  player = actor(30, 64, 4, 8, 72, 5)
 end
 
 function _update()
@@ -22,27 +21,28 @@ end
 function _draw()
   cls()
   map()
-  print(time())
   for a in all(actors)
   do
-    a:draw()
     a:move()
+    a:draw()
   end
 end
 
 -- input handling
 function input()
-  if btn(1)
-  then
-    player.x_spd = min(player.x_spd + 1, 2.5)
-  end
   if btn(0)
   then
-    player.x_spd = max(player.x_spd - 1, -2.5)
+    player.xspd = max(player.xspd - 1, -2.5)
+    player.facing = -1
+  end
+  if btn(1)
+  then
+    player.xspd = min(player.xspd + 1, 2.5)
+    player.facing = 1
   end
   if btnp(2)
   then
-    player.y_spd = -4
+    player.yspd = -5
   end
 end
 
@@ -58,18 +58,19 @@ function sign(number)
   return 0
 end
 
-function vector(x, y)
-  if x == 0 and y == 0
-  then
-    return {0, 0}
-  end
-  local hyp = sqrt(x*x + y*y)
-  return {x / hyp, y / hyp}
-end
-
 -- map system
 function check_cell_flag(x, y, flag, ignore)
-  return fget(mget(flr(x/8), flr(y/8)), flag)
+  local x, y= flr(x/8), flr(y/8)
+  if flag == nil
+  then
+    return fget(mget(x, y))
+  end
+  local collide = fget(mget(x, y), flag)
+  if collide
+  then
+    collide = not fget(mget(x, y), ignore)
+  end
+  return collide
 end
 
 -- actor system
@@ -77,57 +78,95 @@ function actor(x, y, width, height, frame, frames, facing)
   local a = {
     x=x,
     y=y,
-    x_spd=0,
-    y_spd=0,
+    xspd=0,
+    yspd=0,
     height=flr(height/2),
     width=flr(width/2),
     frame=frame,
     frames=frames,
     facing=(facing == nil) and facing or 1,
     move=update_move,
-    draw=draw_move
+    draw=draw_move,
   }
   add(actors, a)
   return a
 end
 
-function draw_move(a)
-  sprite = (a.x_spd != 0) and frame/2 % a.frames or 0
-  spr(a.frame + sprite, a.x - a.width, a.y - a.height, 1, 1)
-end
-
 function update_move(a)
-  -- sign of x and y speeds
-  local x, y = sign(a.x_spd), sign(a.y_spd)
-  -- static values
-  local w, h = x*(a.width - 1), y*(a.height - 1)
-  local vx, vy = unpack(vector(a.x_spd, a.y_spd))
-  -- corner x/y's
-  local cx1, cy1, cx2, cy2 = a.x - w, a.y + h, a.x + w, a.y - h
-  --pset(a.x, a.y, 11)
-  --pset(cx1, cy1, 12)
-  --pset(cx2, cy2, 12)
-  -- ray x/y's
-  local rx1, ry1, rx2, ry2 = cx1 + a.x_spd, cy1 + a.y_spd, cx2 + a.x_spd, cy2 + a.y_spd
-  line(cx1, cy1, rx1, ry1, 12)
-  line(cx2, cy2, rx2, ry2, 12)
-  pset(rx1, ry1, 13)
-  pset(rx2, ry2, 13)
-  if not check_cell_flag(rx1, ry1, map_flag) and not check_cell_flag(rx2, ry2, map_flag)
+  local sign_x, sign_y = sign(a.xspd), sign(a.yspd)
+  local collide, x, y = collision_ray(
+    a.x + sign_x * a.width,
+    a.y + sign_y * a.height,
+    a.xspd, a.yspd, collide_map
+  )
+  a.x += x
+  a.y += y
+  -- check what is around us after moving
+  local floor_left, floor_right, floor_y = a.x - a.width + 1, a.x + a.width, a.y + a.height
+  pset(floor_left, floor_y, 12)
+  pset(floor_right, floor_y, 12)
+  local floor = check_cell_flag(floor_left, floor_y, map_flag) or check_cell_flag(floor_right, floor_y, map_flag)
+  -- handle x/y spd reduction based on how hard we hit the wall
+  if collide
   then
-    a.x += a.x_spd
-    a.y += a.y_spd
-    a.y_spd = min(a.y_spd + 1, 4)
-  end
-  if a.y_spd > 0
-  then
-    if check_cell_flag(a.x - a.width, a.y + a.height, floor_flag) or check_cell_flag(a.x + a.width, a.y+ a.height)
+    if left
     then
-      a.y_spd = 0
+      a.xspd = 0
+    end
+    if floor
+    then
+      a.yspd = 0
+    else
+      a.y += a.yspd
     end
   end
-
+  print(a.xspd .. ";" .. a.yspd)
+  print("COLLIDE" .. tostring(collide))
+  print("FLOOR" .. tostring(floor))
+  print("LEFT" .. tostring(left))
+  -- gravity/friction
+  if floor
+  then
+    -- handle floor physics
+    a.xspd *= .7  -- TODO: adjust friction
+  else
+    -- air and wall? physics
+    a.yspd = min(a.yspd + 1, 4)
+    a.xspd *= .97
+  end
 end
+
+function draw_move(a)
+  local sprite, flip = (a.xspd != 0) and frame/2 % a.frames or 0, a.facing != 1
+  local ox = (flip == true) and 1 or 0
+  spr(a.frame + sprite, a.x - a.width - ox, a.y - a.height, 1, 1, flip)
+end
+
+-- collision
+function collide_map(x, y)
+  return check_cell_flag(x, y, map_flag)
+end
+
+function collision_ray(sx, sy, vx, vy, collide)
+  local collided, x, y = false, 0, 0
+  if vx != 0 or vy != 0
+  then
+    local angle = atan2(vx, vy)
+    local ix, iy, rx, ry = cos(angle), sin(angle), sx + vx, sy + vy
+    for i=0,(vx != 0) and vx/ix or vy/iy
+    do
+      if collide(sx + x, sy + y)
+      then
+        collided = true
+        break
+      end
+      x += ix
+      y += iy
+    end
+  end
+  return collided, x, y
+end
+
 
 
 __gfx__
@@ -389,7 +428,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444
 
 __gff__
-0002024200001202020200000000020202020000000002010000020200000000020202020200000000420000000002021242020202024242000000000200020260706060700000000000000000000000200220006000000004040c0c04200000a0000060a0a0a0a00000000000000000a0000808b00000000000000000000002
+0002024200001202020200000000020202020000000002010000020200000000020202020200020202420000000002021242020202024242020200000200020260706060700000000000000000000000200220006000000004040c0c04200000a0000060a0a0a0a00000000000000000a0000808b00000000000000000000002
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005d09000900090009430000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002828
