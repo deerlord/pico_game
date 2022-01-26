@@ -104,35 +104,45 @@ function update_move(a)
   local ceil = check_cell_flag(y_left, ceil_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag)
   local left = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag)
   local right = check_cell_flag(right_x, x_bottom, map_flag) or check_cell_flag(right_x, x_top, map_flag)
-  -- TODO: if floor, prevent falling and apply x friction
+  -- if floor, prevent falling and apply x friction
+  local xchange, ychange = a.xspd, a.yspd
+  -- a.xspd * .9 / max(1, abs(a.yspd))
   if floor
   then
-    a.yspd = min(0, a.yspd)
-    a.xspd *= .7  -- TODO: adjust friction
+    xchange = a.xspd * .8 / max(1, abs(a.yspd))
+    ychange = min(0, a.yspd)
+    -- a.xspd = a.xspd * .9
+    -- a.yspd = min(0, a.yspd)
   -- apply x friction
   elseif ceil
   then
-
+    xchange = a.xspd * .9 / max(1, abs(a.yspd))
+    ychange = max(0, a.yspd)
   -- apply air friction
   else
-    a.yspd = min(a.yspd + 1, 4)
-    a.xspd *= .97
+    ychange = min(a.yspd + 1, 4)
+    xchange = a.xspd * .97
   end
   -- hitting a wall
   if left or right
   then
-    -- a.yspd *= .2
-    a.xspd = 0
+    ychange = ychange * .1
+    xchange = right and min(xchange, 0) or max(xchange, 0)
   end
-  -- see if there are any collisions in the way
-  local sign_x, sign_y = sign(a.xspd), sign(a.yspd)
-  local collide, x, y = collision_ray(
-    a.x + sign_x * a.width,
-    a.y + sign_y * a.height,
-    a.xspd, a.yspd, collide_map
-  )
-  a.x += x
-  a.y += y
+  a.xspd = xchange
+  a.yspd = ychange
+  if a.xspd != 0 or a.yspd != 0
+  then
+    -- see if there are any collisions in the way
+    local sign_x, sign_y = sign(a.xspd), sign(a.yspd)
+    local collide, x, y = collision_ray(
+      a.x + sign_x * a.width,
+      a.y + sign_y * a.height,
+      a.xspd, a.yspd, collide_map
+    )
+    a.x += x
+    a.y += y
+  end
 end
 
 function draw_move(a)
@@ -165,7 +175,6 @@ function collision_ray(sx, sy, vx, vy, collide)
   end
   return collided, x, y
 end
-
 
 
 __gfx__
