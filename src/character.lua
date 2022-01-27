@@ -30,17 +30,23 @@ end
 
 -- input handling
 function input()
-  if btn(0)
+  if btn(0) and player.state & 0001 == 1
   then
-    player.xspd = max(player.xspd - 1, -2.5)
+    player.xspd = max(player.xspd - .5, -2.5)
     player.facing = -1
-  end
-  if btn(1)
+  elseif btnp(0) and player.state == 0
   then
-    player.xspd = min(player.xspd + 1, 2.5)
-    player.facing = 1
+    player.xspd = player.xspd - 1
   end
-  if btnp(2)
+  if btn(1) and player.state & 0001 == 1
+  then
+    player.xspd = min(player.xspd + .5, 2.5)
+    player.facing = 1
+  elseif btnp(1) and player.state == 0
+  then
+    player.xspd = player.xspd + 1
+  end
+  if btnp(2) and player.state & 0001 == 1
   then
     player.yspd = -5
   end
@@ -87,32 +93,56 @@ function actor(x, y, width, height, frame, frames, facing)
     facing=(facing != nil) and facing or 1,
     move=update_move,
     draw=draw_move,
-    iframe=0
+    iframe=0,
+    state=0x00
   }
   add(actors, a)
   return a
 end
+
+ACTOR_STATE_FLAGS = {
+  {0x08, 0x07}, -- left
+  {0x04, 0x0B},  -- right
+  {0x02, 0x0D},  -- ceil
+  {0x01, 0x0E}   -- floor
+}
+
+COLLISION_METHODS = {
+    function(xch, ych) return max(0, xch), ych end, -- left
+    function(xch, ych) return xch, ych end, -- right
+    function(xch, ych) return xch, ych end, -- ceil
+    function(xch, ych) return xch * .5, min(0, ych) end -- floor
+  }
 
 function update_move(a)
   --[[
   check for map tiles around actor
   ]]--
   -- sensor points
-  local y_left, y_right, floor_y, ceil_y = a.x - a.width + 1, a.x + a.width, a.y + a.height, a.y - a.height
-  local left_x, right_x, x_bottom, x_top = a.x - a.width, a.x + a.width + 1, a.y + a.height - 1, a.y - a.height + 1
-  local floor = check_cell_flag(y_left, floor_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag)
-  local ceil = check_cell_flag(y_left, ceil_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag)
-  local left = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag)
-  local right = check_cell_flag(right_x, x_bottom, map_flag) or check_cell_flag(right_x, x_top, map_flag)
-  -- if floor, prevent falling and apply x friction
+  -- TODO: (fix me) ceil is triggering with right, despite no ceiling
+  local y_left, y_right, floor_y, ceil_y, left_x, right_x, x_bottom, x_top = a.x - a.width + 1, a.x + a.width, a.y + a.height, a.y - a.height, a.x - a.width, a.x + a.width + 1, a.y + a.height - 1, a.y - a.height + 1
+  local left, right, ceil, floor = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag), -- left
+    check_cell_flag(right_x, x_bottom, map_flag) or check_cell_flag(right_x, x_top, map_flag),  -- right
+    check_cell_flag(y_left, ceil_y, map_flag) or check_cell_flag(y_right, ceil_y, map_flag), -- ceil
+    check_cell_flag(y_left, floor_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag) -- floor
   local xchange, ychange = a.xspd, a.yspd
-  -- a.xspd * .9 / max(1, abs(a.yspd))
+  for index, side in pairs({left, right, ceil, floor})
+  do
+    if side
+    then
+      xchange, ychange = COLLISION_METHODS[index](xchange, ychange)
+      a.state |= ACTOR_STATE_FLAGS[index][1]
+    else
+      a.state &= ACTOR_STATE_FLAGS[index][2]
+    end
+  end
+
+  -- TODO: convert this to something using states/flags
+  --[[
   if floor
   then
-    xchange = a.xspd * .8 / max(1, abs(a.yspd))
-    ychange = min(0, a.yspd)
-    -- a.xspd = a.xspd * .9
-    -- a.yspd = min(0, a.yspd)
+    xchange = xchange / max(1, abs(ychange))
+    ychange = min(0, ychange)
   -- apply x friction
   elseif ceil
   then
@@ -126,9 +156,12 @@ function update_move(a)
   -- hitting a wall
   if left or right
   then
+    -- state: 0100 right
+    -- state: 1000 left
     ychange = ychange * .1
     xchange = right and min(xchange, 0) or max(xchange, 0)
   end
+  ]]--
   a.xspd = xchange
   a.yspd = ychange
   if a.xspd != 0 or a.yspd != 0
@@ -143,6 +176,8 @@ function update_move(a)
     a.x += x
     a.y += y
   end
+  -- TODO: (fixed) works but not against walls; due to missing PHYSICS_METHODS
+  a.yspd = min(a.yspd + 1, 4)
 end
 
 function draw_move(a)
