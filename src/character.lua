@@ -21,11 +21,25 @@ end
 function _draw()
   cls()
   map()
+  print(stat(0))
+  print(stat(1))
+  print(stat(2))
   for a in all(actors)
   do
     a:move()
     a:draw()
   end
+end
+
+-- draw things like health bars
+function resource_bar(x, y, percent, col)
+  line(x, y, ceil(max(0, percent/2)) + x, y, col)
+  line(x, y - 1, x - 1, y - 1, 9)
+  line(x - 1, y + 1, 9)
+  line(x, y + 1, 9)
+  line(x + 50, y - 1, x + 51, y - 1, 9)
+  line(x + 51, y + 1, 9)
+  line(x + 50, y + 1, 9)
 end
 
 -- input handling
@@ -108,18 +122,18 @@ ACTOR_STATE_FLAGS = {
 }
 
 COLLISION_METHODS = {
-    function(xch, ych) return max(0, xch), ych end, -- left
-    function(xch, ych) return xch, ych end, -- right
-    function(xch, ych) return xch, ych end, -- ceil
-    function(xch, ych) return xch * .5, min(0, ych) end -- floor
-  }
+  function(xch, ych, frc) return max(0, xch), ych * frc end, -- left
+  function(xch, ych, frc) return min(0, xch), ych * frc end, -- right
+  function(xch, ych, frc) return xch * frc, max(0, ych) end, -- ceil
+  function(xch, ych, frc) return xch * frc, min(0, ych) end -- floor
+}
 
-function update_move(a)
+function update_move_old(a)
   --[[
   check for map tiles around actor
   ]]--
   -- sensor points
-  -- TODO: (fix me) ceil is triggering with right, despite no ceiling
+  -- TODO: (fix me) ceil is triggering with right, despite no ceiling; pixel checks seem ok though
   local y_left, y_right, floor_y, ceil_y, left_x, right_x, x_bottom, x_top = a.x - a.width + 1, a.x + a.width, a.y + a.height, a.y - a.height, a.x - a.width, a.x + a.width + 1, a.y + a.height - 1, a.y - a.height + 1
   local left, right, ceil, floor = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag), -- left
     check_cell_flag(right_x, x_bottom, map_flag) or check_cell_flag(right_x, x_top, map_flag),  -- right
@@ -130,54 +144,71 @@ function update_move(a)
   do
     if side
     then
-      xchange, ychange = COLLISION_METHODS[index](xchange, ychange)
+      xchange, ychange = COLLISION_METHODS[index](xchange, ychange, 1)  -- do not apply friction right now
+      -- TODO: associate tile with friction values
       a.state |= ACTOR_STATE_FLAGS[index][1]
     else
       a.state &= ACTOR_STATE_FLAGS[index][2]
     end
   end
-
-  -- TODO: convert this to something using states/flags
-  --[[
-  if floor
-  then
-    xchange = xchange / max(1, abs(ychange))
-    ychange = min(0, ychange)
-  -- apply x friction
-  elseif ceil
-  then
-    xchange = a.xspd * .9 / max(1, abs(a.yspd))
-    ychange = max(0, a.yspd)
-  -- apply air friction
-  else
-    ychange = min(a.yspd + 1, 4)
-    xchange = a.xspd * .97
-  end
-  -- hitting a wall
-  if left or right
-  then
-    -- state: 0100 right
-    -- state: 1000 left
-    ychange = ychange * .1
-    xchange = right and min(xchange, 0) or max(xchange, 0)
-  end
-  ]]--
   a.xspd = xchange
   a.yspd = ychange
   if a.xspd != 0 or a.yspd != 0
   then
     -- see if there are any collisions in the way
-    local sign_x, sign_y = sign(a.xspd), sign(a.yspd)
     local collide, x, y = collision_ray(
-      a.x + sign_x * a.width,
-      a.y + sign_y * a.height,
+      a.x + sign(a.xspd) * a.width,
+      a.y + sign(a.yspd) * a.height,
       a.xspd, a.yspd, collide_map
     )
     a.x += x
     a.y += y
   end
-  -- TODO: (fixed) works but not against walls; due to missing PHYSICS_METHODS
+  -- apply gravity
   a.yspd = min(a.yspd + 1, 4)
+end
+
+function update_move(a)
+  if a.xspd != 0 or a.yspd != 0
+  then
+    -- see if there are any collisions in the way
+    local collide, x, y = collision_ray(
+      a.x + sign(a.xspd) * a.width,
+      a.y + sign(a.yspd) * a.height,
+      a.xspd, a.yspd, collide_map
+    )
+    a.x += x
+    a.y += y
+  end
+  --[[
+  check for map tiles around actor
+  ]]--
+  -- sensor points
+  -- TODO: (fix me) ceil is triggering with right, despite no ceiling; pixel checks seem ok though
+  local y_left, y_right, floor_y, ceil_y, left_x, right_x, x_bottom, x_top = a.x - a.width + 1, a.x + a.width, a.y + a.height, a.y - a.height, a.x - a.width, a.x + a.width + 1, a.y + a.height - 1, a.y - a.height + 1
+  local left, right, ceil, floor = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag), -- left
+    check_cell_flag(right_x, x_bottom, map_flag) or check_cell_flag(right_x, x_top, map_flag),  -- right
+    check_cell_flag(y_left, ceil_y, map_flag) or check_cell_flag(y_right, ceil_y, map_flag), -- ceil
+    check_cell_flag(y_left, floor_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag) -- floor
+  local xchange, ychange = a.xspd, a.yspd
+  for index, side in pairs({left, right, ceil, floor})
+  do
+    if side
+    then
+      xchange, ychange = COLLISION_METHODS[index](xchange, ychange, 1)  -- do not apply friction right now
+      -- TODO: associate tile with friction values
+      a.state |= ACTOR_STATE_FLAGS[index][1]
+    else
+      a.state &= ACTOR_STATE_FLAGS[index][2]
+    end
+  end
+  a.xspd = xchange
+  a.yspd = ychange
+  -- apply gravity
+  if not floor
+  then
+    a.yspd = min(a.yspd + 1, 4)
+  end
 end
 
 function draw_move(a)
