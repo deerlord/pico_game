@@ -11,6 +11,8 @@ function _init()
   frame = 0
   actors = {}
   player = actor(40, 64, 4, 8, 72, 5)
+  other = actor(100, 64, 4, 8, 72, 5)
+  f = actor(60, 64, 4, 8, 72, 5)
 end
 
 function _update()
@@ -21,14 +23,14 @@ end
 function _draw()
   cls()
   map()
+  for a in all(actors)
+  do
+    a:draw()
+    a:move()
+  end
   print(stat(0))
   print(stat(1))
   print(stat(2))
-  for a in all(actors)
-  do
-    a:move()
-    a:draw()
-  end
 end
 
 -- draw things like health bars
@@ -114,69 +116,81 @@ function actor(x, y, width, height, frame, frames, facing)
   return a
 end
 
+-- TODO: put these in fast memory
 ACTOR_STATE_FLAGS = {
-  {0x08, 0x07}, -- left
-  {0x04, 0x0B},  -- right
-  {0x02, 0x0D},  -- ceil
-  {0x01, 0x0E}   -- floor
+  {0b1000, 0b0111}, -- left
+  {0b0100, 0b1011},  -- right
+  {0b0010, 0b1101},  -- top
+  {0b0001, 0b1110}   -- floor
 }
 
+-- TODO: put these in fast memory
 COLLISION_METHODS = {
   function(xch, ych, frc) return max(0, xch), ych * frc end, -- left
   function(xch, ych, frc) return min(0, xch), ych * frc end, -- right
-  function(xch, ych, frc) return xch * frc, max(0, ych) end, -- ceil
+  function(xch, ych, frc) return xch * frc, max(0, ych) end, -- top
   function(xch, ych, frc) return xch * frc, min(0, ych) end -- floor
 }
 
-function update_move_old(a)
-  --[[
-  check for map tiles around actor
-  ]]--
-  -- sensor points
-  -- TODO: (fix me) ceil is triggering with right, despite no ceiling; pixel checks seem ok though
-  local y_left, y_right, floor_y, ceil_y, left_x, right_x, x_bottom, x_top = a.x - a.width + 1, a.x + a.width, a.y + a.height, a.y - a.height, a.x - a.width, a.x + a.width + 1, a.y + a.height - 1, a.y - a.height + 1
-  local left, right, ceil, floor = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag), -- left
-    check_cell_flag(right_x, x_bottom, map_flag) or check_cell_flag(right_x, x_top, map_flag),  -- right
-    check_cell_flag(y_left, ceil_y, map_flag) or check_cell_flag(y_right, ceil_y, map_flag), -- ceil
-    check_cell_flag(y_left, floor_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag) -- floor
-  local xchange, ychange = a.xspd, a.yspd
-  for index, side in pairs({left, right, ceil, floor})
-  do
-    if side
-    then
-      xchange, ychange = COLLISION_METHODS[index](xchange, ychange, 1)  -- do not apply friction right now
-      -- TODO: associate tile with friction values
-      a.state |= ACTOR_STATE_FLAGS[index][1]
-    else
-      a.state &= ACTOR_STATE_FLAGS[index][2]
-    end
-  end
-  a.xspd = xchange
-  a.yspd = ychange
-  if a.xspd != 0 or a.yspd != 0
-  then
-    -- see if there are any collisions in the way
-    local collide, x, y = collision_ray(
-      a.x + sign(a.xspd) * a.width,
-      a.y + sign(a.yspd) * a.height,
-      a.xspd, a.yspd, collide_map
-    )
-    a.x += x
-    a.y += y
-  end
-  -- apply gravity
-  a.yspd = min(a.yspd + 1, 4)
+function corners(xspd, yspd, width, height)
+  angle = atan2(xspd, yspd)
+  local left = (angle + .25) % 1.0
+  local right = (angle - .25) % 1.0
+  local x1, y1, x2, y2 = sign(cos(left))*width, sign(sin(left))*(height-1), sign(cos(right))*width, sign(sin(right))*(height-1)
 end
+
+-- TODO: how to find corners
+--[[
+-- angle as float
+function corners()
+angle = atan2(xspd, yspd)
+left = (angle + .5) % 1.0
+right = (angle - .5) % 1.0
+left_x, left_y = sign(cos(left))*width, sign(sin(left))*height
+right_x, right_y = sign(cos(right))*width, sign(sin(right))*height
+print(left_x .. "," .. left_y)
+print(right_x .. "," .. right_y)
+end
+
+-- rotate angle 90 degrees +/-
+if angle % .25 == 0
+then
+  -- xspd or yspd is 0; weird corner find function?
+  local x1 = -width
+  local x2 = width
+  local y1 = sign(yspd) * height
+  local y2 = y1
+else
+  -- regular find corners
+  x1 = sign(xspd) * width
+  y1 = -sign(yspd) * height
+  x2 = -sign(xspd) * width
+  y2 = sign(yspd) * height
+end
+-- return x1, x2, y1, y2
+]]--
+
 
 function update_move(a)
   if a.xspd != 0 or a.yspd != 0
   then
-    -- see if there are any collisions in the way
-    local collide, x, y = collision_ray(
-      a.x + sign(a.xspd) * a.width,
-      a.y + sign(a.yspd) * a.height,
-      a.xspd, a.yspd, collide_map
-    )
+    local angle = atan2(a.xspd, a.yspd)
+    local left = (angle + .25) % 1.0
+    local right = (angle - .25) % 1.0
+    for coord in all({
+      {sign(cos(left))*a.width, sign(sin(left))*a.height},
+      {sign(cos(right))*a.width, sign(sin(right))*a.height}
+    })
+    do
+      collide, x, y = collision_ray(
+        a.x + coord[1], a.y + coord[2],
+        a.xspd, a.yspd, collide_map
+      )
+      if collide
+      then
+        break
+      end
+    end
     a.x += x
     a.y += y
   end
@@ -184,14 +198,14 @@ function update_move(a)
   check for map tiles around actor
   ]]--
   -- sensor points
-  -- TODO: (fix me) ceil is triggering with right, despite no ceiling; pixel checks seem ok though
-  local y_left, y_right, floor_y, ceil_y, left_x, right_x, x_bottom, x_top = a.x - a.width + 1, a.x + a.width, a.y + a.height, a.y - a.height, a.x - a.width, a.x + a.width + 1, a.y + a.height - 1, a.y - a.height + 1
-  local left, right, ceil, floor = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag), -- left
+  -- TODO: (fix me) top is triggering with right, despite no ceiling; pixel checks seem ok though
+  local y_left, y_right, floor_y, top_y, left_x, right_x, x_bottom, x_top = a.x - a.width + 1, a.x + a.width, a.y + a.height, a.y - a.height, a.x - a.width, a.x + a.width + 1, a.y + a.height - 1, a.y - a.height + 1
+  local left, right, top, floor = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag), -- left
     check_cell_flag(right_x, x_bottom, map_flag) or check_cell_flag(right_x, x_top, map_flag),  -- right
-    check_cell_flag(y_left, ceil_y, map_flag) or check_cell_flag(y_right, ceil_y, map_flag), -- ceil
+    check_cell_flag(y_left, top_y, map_flag) or check_cell_flag(y_right, top_y, map_flag), -- top
     check_cell_flag(y_left, floor_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag) -- floor
   local xchange, ychange = a.xspd, a.yspd
-  for index, side in pairs({left, right, ceil, floor})
+  for index, side in pairs({left, right, top, floor})
   do
     if side
     then
@@ -207,6 +221,7 @@ function update_move(a)
   -- apply gravity
   if not floor
   then
+    a.xspd *= .97
     a.yspd = min(a.yspd + 1, 4)
   end
 end
@@ -214,7 +229,7 @@ end
 function draw_move(a)
   local sprite, flip = (a.xspd != 0) and frame/2 % a.frames or 0, a.facing != 1
   local ox = (flip == true) and 1 or 0
-  spr(a.frame + sprite, a.x - a.width - ox, a.y - a.height, 1, 1, flip)
+  spr(a.frame + sprite, a.x - 4 - ox, a.y - 4, 1, 1, flip)
 end
 
 -- collision
@@ -222,6 +237,7 @@ function collide_map(x, y)
   return check_cell_flag(x, y, map_flag)
 end
 
+-- TODO: improve efficiency; bit math? less calcs?
 function collision_ray(sx, sy, vx, vy, collide)
   local collided, x, y = false, 0, 0
   if vx != 0 or vy != 0
