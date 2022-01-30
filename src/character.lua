@@ -10,9 +10,9 @@ floor_flag = 6
 function _init()
   frame = 0
   actors = {}
-  player = actor(40, 64, 4, 8, 72, 5)
-  other = actor(100, 64, 4, 8, 72, 5)
-  f = actor(60, 64, 4, 8, 72, 5)
+  player = actor(60, 100, 8, 8, 72, 5)
+  --other = actor(100, 64, 4, 8, 72, 5)
+  --f = actor(60, 64, 4, 8, 72, 5)
 end
 
 function _update()
@@ -28,9 +28,6 @@ function _draw()
     a:draw()
     a:move()
   end
-  print(stat(0))
-  print(stat(1))
-  print(stat(2))
 end
 
 -- draw things like health bars
@@ -170,26 +167,29 @@ end
 -- return x1, x2, y1, y2
 ]]--
 
-
 function update_move(a)
+  --circ(a.x, a.y, a.height-1, 12)
+  local a_ox = a.x - 1
+  local sw, sh = a.width - 1, a.height - 1
   if a.xspd != 0 or a.yspd != 0
   then
     local angle = atan2(a.xspd, a.yspd)
-    local left = (angle + .25) % 1.0
-    local right = (angle - .25) % 1.0
-    for coord in all({
-      {sign(cos(left))*a.width, sign(sin(left))*a.height},
-      {sign(cos(right))*a.width, sign(sin(right))*a.height}
-    })
-    do
-      collide, x, y = collision_ray(
-        a.x + coord[1], a.y + coord[2],
-        a.xspd, a.yspd, collide_map
-      )
-      if collide
-      then
-        break
-      end
+    local mod = angle % .25 == 0 and .24 or .25
+    local left, right = (angle + mod) % 1.0, (angle - mod) % 1.0
+    local x1, y1, x2, y2 = a_ox + sign(cos(left))*sw, a.y + sign(sin(left))*sh, a_ox + sign(cos(right))*sw, a.y + sign(sin(right))*sh
+    local l_collide, lx, ly = collision_ray(
+      x1, y1,
+      a.xspd, a.yspd, collide_map
+    )
+    local r_collide, rx, ry = collision_ray(
+      x2, y2,
+      a.xspd, a.yspd, collide_map
+    )
+    if sqrt(lx*lx + ly*ly) <= sqrt(rx*rx + ry*ry)
+    then
+      x, y = lx, ly
+    else
+      x, y = rx, ry
     end
     a.x += x
     a.y += y
@@ -198,14 +198,17 @@ function update_move(a)
   check for map tiles around actor
   ]]--
   -- sensor points
-  -- TODO: (fix me) top is triggering with right, despite no ceiling; pixel checks seem ok though
-  local y_left, y_right, floor_y, top_y, left_x, right_x, x_bottom, x_top = a.x - a.width + 1, a.x + a.width, a.y + a.height, a.y - a.height, a.x - a.width, a.x + a.width + 1, a.y + a.height - 1, a.y - a.height + 1
-  local left, right, top, floor = check_cell_flag(left_x, x_bottom, map_flag) or check_cell_flag(left_x, x_top, map_flag), -- left
-    check_cell_flag(right_x, x_bottom, map_flag) or check_cell_flag(right_x, x_top, map_flag),  -- right
-    check_cell_flag(y_left, top_y, map_flag) or check_cell_flag(y_right, top_y, map_flag), -- top
-    check_cell_flag(y_left, floor_y, map_flag) or check_cell_flag(y_right, floor_y, map_flag) -- floor
+  -- TODO: correct issues with a.x offsets; not in use here yet
+  local left_x, right_x, horz_y1, horz_y2 = a_ox - a.width, a_ox + a.width, a.y - sh, a.y + sh
+  local vert_x1, vert_x2, floor_y, ceil_y = a.x - sw, a_ox + sw - 1, a.y + a.height, a.y - a.height
+
   local xchange, ychange = a.xspd, a.yspd
-  for index, side in pairs({left, right, top, floor})
+  for index, side in pairs({
+    collide_map(left_x, horz_y1) or collide_map(left_x, horz_y2),
+    collide_map(right_x, horz_y1) or collide_map(right_x, horz_y2),
+    collide_map(vert_x1, ceil_y) or collide_map(vert_x2, ceil_y),
+    collide_map(vert_x1, floor_y) or collide_map(vert_x2, floor_y)
+  })
   do
     if side
     then
@@ -223,6 +226,8 @@ function update_move(a)
   then
     a.xspd *= .97
     a.yspd = min(a.yspd + 1, 4)
+  else
+    -- apply tile based friction
   end
 end
 
@@ -239,14 +244,14 @@ end
 
 -- TODO: improve efficiency; bit math? less calcs?
 function collision_ray(sx, sy, vx, vy, collide)
-  local collided, x, y = false, 0, 0
+  local collided, x, y, distance = false, 0, 0, 0
   if vx != 0 or vy != 0
   then
     local angle = atan2(vx, vy)
     local ix, iy, rx, ry = cos(angle), sin(angle), sx + vx, sy + vy
     for i=0,(vx != 0) and vx/ix or vy/iy
     do
-      if collide(sx + x, sy + y)
+      if collide(flr(sx + x + ix), flr(sy + y + iy))
       then
         collided = true
         break
@@ -255,7 +260,7 @@ function collision_ray(sx, sy, vx, vy, collide)
       y += iy
     end
   end
-  return collided, x, y
+  return collided, flr(x), flr(y)
 end
 
 
