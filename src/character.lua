@@ -10,7 +10,7 @@ floor_flag = 6
 function _init()
   frame = 0
   actors = {}
-  player = actor(60, 100, 8, 8, 72, 5)
+  player = actor(60, 60, 4, 8, 72, 1)
   --other = actor(100, 64, 4, 8, 72, 5)
   --f = actor(60, 64, 4, 8, 72, 5)
 end
@@ -200,14 +200,14 @@ function update_move(a)
   -- sensor points
   -- TODO: correct issues with a.x offsets; not in use here yet
   local left_x, right_x, horz_y1, horz_y2 = a_ox - a.width, a_ox + a.width, a.y - sh, a.y + sh
-  local vert_x1, vert_x2, floor_y, ceil_y = a.x - sw, a_ox + sw - 1, a.y + a.height, a.y - a.height
-
+  local vert_x1, vert_x2, floor_y, ceil_y = a_ox - sw, a_ox + sw, a.y + a.height, a.y - a.height
+  local floor = collide_map(vert_x1, floor_y) or collide_map(vert_x2, floor_y)
   local xchange, ychange = a.xspd, a.yspd
   for index, side in pairs({
     collide_map(left_x, horz_y1) or collide_map(left_x, horz_y2),
     collide_map(right_x, horz_y1) or collide_map(right_x, horz_y2),
     collide_map(vert_x1, ceil_y) or collide_map(vert_x2, ceil_y),
-    collide_map(vert_x1, floor_y) or collide_map(vert_x2, floor_y)
+    floor
   })
   do
     if side
