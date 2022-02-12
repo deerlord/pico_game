@@ -10,40 +10,60 @@ floor_flag = 6
 function _init()
   frame = 0
   actors = {}
-  player = actor(60, 60, 4, 8, 72, 1)
+  player = actor(34, 50, 4, 8, 72, 5)
   --other = actor(100, 64, 4, 8, 72, 5)
   --f = actor(60, 64, 4, 8, 72, 5)
+  mx = 0
 end
 
 function _update()
-  frame = frame + 1 % 30
+  frame = (frame + 1) % 30
   input()
+  for a in all(actors)
+  do
+    a:move()
+  end
 end
 
 function _draw()
   cls()
+  focus_camera()
   map()
+  draw_scarf()
   for a in all(actors)
   do
     a:draw()
-    a:move()
   end
+  resource_bar(1, 1, 100, 8)
+  resource_bar(1, 3, 100, 12)
+  resource_bar(1, 5, 100, 11)
+end
+
+function focus_camera()
+  local room_width, room_height = 100, 100
+  camera(
+    min(max(player.x-64, 0), room_width),
+    min(max(player.y-64, 0), room_height)
+  )
 end
 
 -- draw things like health bars
 function resource_bar(x, y, percent, col)
   line(x, y, ceil(max(0, percent/2)) + x, y, col)
-  line(x, y - 1, x - 1, y - 1, 9)
-  line(x - 1, y + 1, 9)
-  line(x, y + 1, 9)
-  line(x + 50, y - 1, x + 51, y - 1, 9)
-  line(x + 51, y + 1, 9)
-  line(x + 50, y + 1, 9)
+  pset(x-1, y, 9)
+  pset(x+51, y, 9)
+end
+
+function draw_scarf()
+  local sx, sy = player.x-1-player.facing*2, player.y+1
+  local dx, dy = sign(player.xspd), sign(player.yspd)
+  local ex, ey = sx - dx*3 + cos(frame/15 - 1), sy - dy*3 + sin(frame/15 - 1)
+  line(sx, sy, ex, ey, 2)
 end
 
 -- input handling
 function input()
-  if btn(0) and player.state & 0001 == 1
+  if btn(0) and player.state & 0b0001 == 1
   then
     player.xspd = max(player.xspd - .5, -2.5)
     player.facing = -1
@@ -51,7 +71,7 @@ function input()
   then
     player.xspd = player.xspd - 1
   end
-  if btn(1) and player.state & 0001 == 1
+  if btn(1) and player.state & 0b0001 == 1
   then
     player.xspd = min(player.xspd + .5, 2.5)
     player.facing = 1
@@ -59,7 +79,7 @@ function input()
   then
     player.xspd = player.xspd + 1
   end
-  if btnp(2) and player.state & 0001 == 1
+  if btnp(2) and player.state & 0b0001 == 1
   then
     player.yspd = -5
   end
@@ -129,46 +149,8 @@ COLLISION_METHODS = {
   function(xch, ych, frc) return xch * frc, min(0, ych) end -- floor
 }
 
-function corners(xspd, yspd, width, height)
-  angle = atan2(xspd, yspd)
-  local left = (angle + .25) % 1.0
-  local right = (angle - .25) % 1.0
-  local x1, y1, x2, y2 = sign(cos(left))*width, sign(sin(left))*(height-1), sign(cos(right))*width, sign(sin(right))*(height-1)
-end
-
--- TODO: how to find corners
---[[
--- angle as float
-function corners()
-angle = atan2(xspd, yspd)
-left = (angle + .5) % 1.0
-right = (angle - .5) % 1.0
-left_x, left_y = sign(cos(left))*width, sign(sin(left))*height
-right_x, right_y = sign(cos(right))*width, sign(sin(right))*height
-print(left_x .. "," .. left_y)
-print(right_x .. "," .. right_y)
-end
-
--- rotate angle 90 degrees +/-
-if angle % .25 == 0
-then
-  -- xspd or yspd is 0; weird corner find function?
-  local x1 = -width
-  local x2 = width
-  local y1 = sign(yspd) * height
-  local y2 = y1
-else
-  -- regular find corners
-  x1 = sign(xspd) * width
-  y1 = -sign(yspd) * height
-  x2 = -sign(xspd) * width
-  y2 = sign(yspd) * height
-end
--- return x1, x2, y1, y2
-]]--
 
 function update_move(a)
-  --circ(a.x, a.y, a.height-1, 12)
   local a_ox = a.x - 1
   local sw, sh = a.width - 1, a.height - 1
   if a.xspd != 0 or a.yspd != 0
@@ -185,49 +167,54 @@ function update_move(a)
       x2, y2,
       a.xspd, a.yspd, collide_map
     )
-    if sqrt(lx*lx + ly*ly) <= sqrt(rx*rx + ry*ry)
+    if not (x1 == x2 or y1 == y2)
     then
-      x, y = lx, ly
+      x3, y3 = a_ox + sign(cos(angle))*sw, a.y + sign(sin(angle))*sh
+      c_collide, cx, cy = collision_ray(
+        x3, y3,
+        a.xspd, a.yspd, collide_map
+      )
     else
-      x, y = rx, ry
+      c_collide, cx, cy = false, a.xspd, a.yspd
     end
-    a.x += x
-    a.y += y
-  end
-  --[[
-  check for map tiles around actor
-  ]]--
-  -- sensor points
-  -- TODO: correct issues with a.x offsets; not in use here yet
-  local left_x, right_x, horz_y1, horz_y2 = a_ox - a.width, a_ox + a.width, a.y - sh, a.y + sh
-  local vert_x1, vert_x2, floor_y, ceil_y = a_ox - sw, a_ox + sw, a.y + a.height, a.y - a.height
-  local floor = collide_map(vert_x1, floor_y) or collide_map(vert_x2, floor_y)
-  local xchange, ychange = a.xspd, a.yspd
-  for index, side in pairs({
-    collide_map(left_x, horz_y1) or collide_map(left_x, horz_y2),
-    collide_map(right_x, horz_y1) or collide_map(right_x, horz_y2),
-    collide_map(vert_x1, ceil_y) or collide_map(vert_x2, ceil_y),
-    floor
-  })
-  do
-    if side
-    then
-      xchange, ychange = COLLISION_METHODS[index](xchange, ychange, 1)  -- do not apply friction right now
-      -- TODO: associate tile with friction values
-      a.state |= ACTOR_STATE_FLAGS[index][1]
-    else
-      a.state &= ACTOR_STATE_FLAGS[index][2]
+    local l, c, r = sqrt(lx*lx + ly*ly), sqrt(cx*cx + cy*cy), sqrt(rx*rx + ry*ry)
+    local coords = {{lx, ly}, {cx, cy}, {rx, ry}}
+    local selector = (l <= r and l <= c) and 1 or (r <= l and r <= c) and 3 or 2
+    mx, my = coords[selector][1], coords[selector][2]
+    a.x += mx
+    a.y += my
+
+    local left_x, right_x, horz_y1, horz_y2 = a_ox - a.width, a_ox + a.width, a.y - sh, a.y + sh
+    local vert_x1, vert_x2, floor_y, ceil_y = a_ox - sw, a_ox + sw, a.y + a.height, a.y - a.height
+    floor = collide_map(vert_x1, floor_y) or collide_map(vert_x2, floor_y)
+    local xchange, ychange = a.xspd, a.yspd
+    for index, side in pairs({
+      collide_map(left_x, horz_y1) or collide_map(left_x, horz_y2),
+      collide_map(right_x, horz_y1) or collide_map(right_x, horz_y2),
+      collide_map(vert_x1, ceil_y) or collide_map(vert_x2, ceil_y),
+      floor
+    })
+    do
+      if side
+      then
+        xchange, ychange = COLLISION_METHODS[index](xchange, ychange, 1)  -- do not apply friction right now
+        -- TODO: associate tile with friction values
+        a.state |= ACTOR_STATE_FLAGS[index][1]
+      else
+        a.state &= ACTOR_STATE_FLAGS[index][2]
+      end
     end
+    a.xspd = xchange
+    a.yspd = ychange
   end
-  a.xspd = xchange
-  a.yspd = ychange
-  -- apply gravity
+  -- apply gravity and air resistance
   if not floor
   then
     a.xspd *= .97
     a.yspd = min(a.yspd + 1, 4)
+  -- TODO: apply tile based floor friction
   else
-    -- apply tile based friction
+    a.xspd *= .83
   end
 end
 
@@ -260,7 +247,7 @@ function collision_ray(sx, sy, vx, vy, collide)
       y += iy
     end
   end
-  return collided, flr(x), flr(y)
+  return collided, x, y
 end
 
 
