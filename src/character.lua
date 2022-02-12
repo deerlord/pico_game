@@ -2,6 +2,9 @@ pico-8 cartridge // http://www.pico-8.com
 version 34
 __lua__
 
+-- TODO: refine double jump handling
+-- should wall jumps reset double jump?
+
 -- globals
 map_flag = 1
 floor_flag = 6
@@ -21,67 +24,86 @@ function _update()
   input()
   for a in all(actors)
   do
-    a:move()
+    if a:move()
+    then
+      select_animation(a)
+    end
   end
 end
 
 function _draw()
   cls()
-  focus_camera()
   map()
-  draw_scarf()
+  local cam_x, cam_y = focus_camera(player)
+  draw_ui(cam_x, cam_y)
   for a in all(actors)
   do
     a:draw()
   end
-  resource_bar(1, 1, 100, 8)
-  resource_bar(1, 3, 100, 12)
-  resource_bar(1, 5, 100, 11)
 end
 
-function focus_camera()
-  local room_width, room_height = 100, 100
-  camera(
-    min(max(player.x-64, 0), room_width),
-    min(max(player.y-64, 0), room_height)
-  )
+function draw_ui(cam_x, cam_y)
+  local bar_x = cam_x + 1
+  rectfill(cam_x, cam_y+120, cam_x+127, cam_y + 127, 0)
+  resource_bar(bar_x, cam_y + 122, player.cur_hp/player.max_hp*100, 8)
+  resource_bar(bar_x, cam_y + 124, 100, 12)
+  resource_bar(bar_x, cam_y + 126, 100, 11)
+end
+
+function focus_camera(a)
+  -- TODO: load room_width and room_height from current room data
+  local room_width, room_height = 200, 128
+  local cam_x, cam_y = min(max(a.x-64, 0), room_width), min(max(a.y-64, 0), room_height)
+  camera(cam_x, cam_y)
+  return cam_x, cam_y
 end
 
 -- draw things like health bars
 function resource_bar(x, y, percent, col)
-  line(x, y, ceil(max(0, percent/2)) + x, y, col)
+  line(x, y, ceil(max(0, percent/4)) + x, y, col)
   pset(x-1, y, 9)
-  pset(x+51, y, 9)
+  pset(x+26, y, 9)
 end
 
-function draw_scarf()
-  local sx, sy = player.x-1-player.facing*2, player.y+1
-  local dx, dy = sign(player.xspd), sign(player.yspd)
-  local ex, ey = sx - dx*3 + cos(frame/15 - 1), sy - dy*3 + sin(frame/15 - 1)
-  line(sx, sy, ex, ey, 2)
-end
-
--- input handling
 function input()
-  if btn(0) and player.state & 0b0001 == 1
+  if player.state & 0b0001 == 1
   then
-    player.xspd = max(player.xspd - .5, -2.5)
-    player.facing = -1
-  elseif btnp(0) and player.state == 0
+    -- on floor
+    if btn(0)
+    then
+      actor_move_left(player)
+    end
+    if btn(1)
+    then
+      actor_move_right(player)
+    end
+    if btnp(2)
+    then
+      actor_jump(player, 5)
+    end
+  elseif player.state & 0b1100 > 0b0011
   then
-    player.xspd = player.xspd - 1
-  end
-  if btn(1) and player.state & 0b0001 == 1
+     -- on wall and not floor
+     if btnp(2)
+     then
+       player.facing = -player.facing
+       player.xspd = player.facing*2
+       actor_jump(player, 6)
+     end
+  elseif player.state & 0b0010 == 1
   then
-    player.xspd = min(player.xspd + .5, 2.5)
-    player.facing = 1
-  elseif btnp(1) and player.state == 0
+    -- touching ceiling
+  elseif player.state == 0
   then
-    player.xspd = player.xspd + 1
-  end
-  if btnp(2) and player.state & 0b0001 == 1
-  then
-    player.yspd = -5
+    -- in air
+    if btn(0)
+    then
+      actor_move_left(player, .7)
+    end
+    if btn(1)
+    then
+      actor_move_right(player, .7)
+    end
   end
 end
 
@@ -115,10 +137,14 @@ end
 -- actor system
 function actor(x, y, width, height, frame, frames, facing)
   local a = {
+    cur_hp=50,
+    max_hp=100,
     x=x,
     y=y,
     xspd=0,
     yspd=0,
+    accel=.1,
+    decel=.07,
     height=flr(height/2),
     width=flr(width/2),
     frame=frame,
@@ -127,7 +153,9 @@ function actor(x, y, width, height, frame, frames, facing)
     move=update_move,
     draw=draw_move,
     iframe=0,
-    state=0x00
+    state=0x00,
+    jump_frames={frame+2, frame+3},
+    jumps=0
   }
   add(actors, a)
   return a
@@ -149,8 +177,40 @@ COLLISION_METHODS = {
   function(xch, ych, frc) return xch * frc, min(0, ych) end -- floor
 }
 
+-- verbs
+function actor_jump(a, force)
+  a.yspd = -force
+  if a.state == 0
+  then
+    a.jumps += 1
+  end
+end
 
+function actor_move_left(a, coefficient)
+  if coefficient == nil
+  then
+    coefficient = 1
+  end
+  if sign(a.xspd) == -1
+  then
+    a.xspd -= a.decel
+  end
+  a.xspd = max(a.xspd - a.accel * coefficient, -2.5)
+  a.facing = -1
+end
+
+function actor_move_right(a, coefficient)
+  if sign(player.xspd) == 1
+  then
+    player.xspd += player.decel
+  end
+  player.xspd = min(player.xspd + player.accel, 2.5)
+  player.facing = 1
+end
+
+-- physics engine
 function update_move(a)
+  local initial_state = a.state
   local a_ox = a.x - 1
   local sw, sh = a.width - 1, a.height - 1
   if a.xspd != 0 or a.yspd != 0
@@ -188,6 +248,7 @@ function update_move(a)
     local vert_x1, vert_x2, floor_y, ceil_y = a_ox - sw, a_ox + sw, a.y + a.height, a.y - a.height
     floor = collide_map(vert_x1, floor_y) or collide_map(vert_x2, floor_y)
     local xchange, ychange = a.xspd, a.yspd
+    local state_change = false
     for index, side in pairs({
       collide_map(left_x, horz_y1) or collide_map(left_x, horz_y2),
       collide_map(right_x, horz_y1) or collide_map(right_x, horz_y2),
@@ -200,6 +261,8 @@ function update_move(a)
         xchange, ychange = COLLISION_METHODS[index](xchange, ychange, 1)  -- do not apply friction right now
         -- TODO: associate tile with friction values
         a.state |= ACTOR_STATE_FLAGS[index][1]
+        a.jumps = 0
+        state_change = true
       else
         a.state &= ACTOR_STATE_FLAGS[index][2]
       end
@@ -212,16 +275,11 @@ function update_move(a)
   then
     a.xspd *= .97
     a.yspd = min(a.yspd + 1, 4)
-  -- TODO: apply tile based floor friction
   else
-    a.xspd *= .83
+    -- TODO: apply floor friction
+    --a.xspd *= .93
   end
-end
-
-function draw_move(a)
-  local sprite, flip = (a.xspd != 0) and frame/2 % a.frames or 0, a.facing != 1
-  local ox = (flip == true) and 1 or 0
-  spr(a.frame + sprite, a.x - 4 - ox, a.y - 4, 1, 1, flip)
+  return initial_state != a.state
 end
 
 -- collision
@@ -250,6 +308,31 @@ function collision_ray(sx, sy, vx, vy, collide)
   return collided, x, y
 end
 
+-- animation engine
+function select_animation(a)
+  if a.state == 0
+  then
+    a.draw = draw_jump
+  elseif a.state & 0b0001 == 1
+  then
+    a.draw = draw_move
+  elseif a.state > 0b0011
+  then
+    -- wall stick/slide
+  end
+end
+
+function draw_move(a)
+  local sprite, flip = (a.xspd != 0) and frame/2 % a.frames or 0, a.facing != 1
+  local ox = (flip == true) and 1 or 0
+  spr(a.frame + sprite, a.x - 4 - ox, a.y - 4, 1, 1, flip)
+end
+
+function draw_jump(a)
+  local sprite, flip = player.yspd < 0 and player.jump_frames[1] or player.jump_frames[2], a.facing != 1
+  local ox = (flip == true) and 1 or 0
+  spr(sprite, a.x - 4 - ox, a.y - 4, 1, 1, flip)
+end
 
 __gfx__
 000000002222222244444444bbbbbbbb00000000000aa000d7777777d66667d666666667d6666667cccccccccccccccccc5ccccccc5cccc5f777777767766666
