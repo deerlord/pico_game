@@ -9,6 +9,12 @@ __lua__
 map_flag = 1
 floor_flag = 6
 
+-- bitmask movement constants
+LEFT = 0b0001
+RIGHT = 0b0010
+UP = 0b0100
+DOWN = 0b1000
+
 -- pico functions
 function _init()
   frame = 0
@@ -16,7 +22,8 @@ function _init()
   player = actor(34, 50, 4, 8, 72, 5)
   --other = actor(100, 64, 4, 8, 72, 5)
   --f = actor(60, 64, 4, 8, 72, 5)
-  mx = 0
+  debug = {}
+  physics = {}
 end
 
 function _update()
@@ -24,10 +31,7 @@ function _update()
   input()
   for a in all(actors)
   do
-    if a:move()
-    then
-      select_animation(a)
-    end
+    update_move(a)
   end
 end
 
@@ -38,7 +42,14 @@ function _draw()
   draw_ui(cam_x, cam_y)
   for a in all(actors)
   do
+    select_animation(a)
     a:draw()
+  end
+  local offset = 0
+  for d in all(debug)
+  do
+    print(d, cam_x, cam_y + offset)
+    offset += 8
   end
 end
 
@@ -66,7 +77,7 @@ function resource_bar(x, y, percent, col)
 end
 
 function input()
-  if player.state & 0b0001 == 1
+  if player.state & DOWN == DOWN
   then
     -- on floor
     if btn(0)
@@ -79,9 +90,9 @@ function input()
     end
     if btnp(2)
     then
-      actor_jump(player, 5)
+      actor_jump(player, 5.1)
     end
-  elseif player.state & 0b1100 > 0b0011
+  elseif player.state & (LEFT | RIGHT) != 0 and player.state & (UP | DOWN) == 0
   then
      -- on wall and not floor
      if btnp(2)
@@ -90,7 +101,7 @@ function input()
        player.xspd = player.facing*2
        actor_jump(player, 6)
      end
-  elseif player.state & 0b0010 == 1
+  elseif player.state & UP == UP
   then
     -- touching ceiling
   elseif player.state == 0
@@ -150,7 +161,6 @@ function actor(x, y, width, height, frame, frames, facing)
     frame=frame,
     frames=frames,
     facing=(facing != nil) and facing or 1,
-    move=update_move,
     draw=draw_move,
     iframe=0,
     state=0x00,
@@ -200,17 +210,42 @@ function actor_move_left(a, coefficient)
 end
 
 function actor_move_right(a, coefficient)
-  if sign(player.xspd) == 1
+  if coefficient == nil
   then
-    player.xspd += player.decel
+    coefficient = 1
   end
-  player.xspd = min(player.xspd + player.accel, 2.5)
-  player.facing = 1
+  if sign(a.xspd) == 1
+  then
+    a.xspd += a.decel
+  end
+  a.xspd = min(a.xspd + a.accel * coefficient, 2.5)
+  a.facing = 1
 end
 
 -- physics engine
+function actor_state(a)
+  local a_ox = a.x - 1
+  local sw, sh = a.width - 1, a.height - 1
+  local left_x, right_x, horz_y1, horz_y2 = a_ox - a.width, a_ox + a.width, a.y - sh, a.y + sh
+  local vert_x1, vert_x2, floor_y, ceil_y = a_ox - sw, a_ox + sw, a.y + a.height, a.y - a.height
+  local bitmask = 0b0000
+  for index, side in pairs({
+    collide_map(left_x, horz_y1) or collide_map(left_x, horz_y2),  -- left
+    collide_map(right_x, horz_y1) or collide_map(right_x, horz_y2),  -- right
+    collide_map(vert_x1, ceil_y) or collide_map(vert_x2, ceil_y),  -- ceil
+    collide_map(vert_x1, floor_y) or collide_map(vert_x2, floor_y)  -- floor
+  })
+  do
+    if side
+    then
+      bitmask |= 1 << (index-1)
+    end
+  end
+  return bitmask
+end
+
 function update_move(a)
-  local initial_state = a.state
+  local e = stat(1)
   local a_ox = a.x - 1
   local sw, sh = a.width - 1, a.height - 1
   if a.xspd != 0 or a.yspd != 0
@@ -243,42 +278,28 @@ function update_move(a)
     mx, my = coords[selector][1], coords[selector][2]
     a.x += mx
     a.y += my
+  end
 
-    local left_x, right_x, horz_y1, horz_y2 = a_ox - a.width, a_ox + a.width, a.y - sh, a.y + sh
-    local vert_x1, vert_x2, floor_y, ceil_y = a_ox - sw, a_ox + sw, a.y + a.height, a.y - a.height
-    floor = collide_map(vert_x1, floor_y) or collide_map(vert_x2, floor_y)
-    local xchange, ychange = a.xspd, a.yspd
-    local state_change = false
-    for index, side in pairs({
-      collide_map(left_x, horz_y1) or collide_map(left_x, horz_y2),
-      collide_map(right_x, horz_y1) or collide_map(right_x, horz_y2),
-      collide_map(vert_x1, ceil_y) or collide_map(vert_x2, ceil_y),
-      floor
-    })
-    do
-      if side
-      then
-        xchange, ychange = COLLISION_METHODS[index](xchange, ychange, 1)  -- do not apply friction right now
-        -- TODO: associate tile with friction values
-        a.state |= ACTOR_STATE_FLAGS[index][1]
-        a.jumps = 0
-        state_change = true
-      else
-        a.state &= ACTOR_STATE_FLAGS[index][2]
-      end
-    end
-    a.xspd = xchange
-    a.yspd = ychange
+  local state = actor_state(a)
+  debug[2] = "init " .. state
+  local changes = state ^^ a.state  -- which sides had a change, but not what the change is
+  local collisions = changes & state  -- if we hit something and that side also changes, it must have been 0 > 1
+  debug[3] = "colls " .. collisions
+  -- handle the collisions against a map
+  if collisions & DOWN == DOWN
+  then
+    a.yspd = 0
   end
   -- apply gravity and air resistance
-  if not floor
+  if state & DOWN != DOWN
   then
     a.xspd *= .97
     a.yspd = min(a.yspd + 1, 4)
   else
     -- TODO: apply floor friction
-    --a.xspd *= .93
   end
+  a.state = state
+  debug[1] = e - stat(1)
   return initial_state != a.state
 end
 
@@ -310,15 +331,15 @@ end
 
 -- animation engine
 function select_animation(a)
-  if a.state == 0
+  if a.iframe > 0
+  then
+    --
+  elseif a.state & DOWN == 0
   then
     a.draw = draw_jump
-  elseif a.state & 0b0001 == 1
+  elseif a.state & DOWN == DOWN
   then
     a.draw = draw_move
-  elseif a.state > 0b0011
-  then
-    -- wall stick/slide
   end
 end
 
