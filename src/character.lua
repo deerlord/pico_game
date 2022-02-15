@@ -9,7 +9,7 @@ __lua__
 map_flag = 1
 floor_flag = 6
 
--- bitmask movement constants
+-- bitmask direction constants
 LEFT = 0b0001
 RIGHT = 0b0010
 UP = 0b0100
@@ -19,11 +19,14 @@ DOWN = 0b1000
 function _init()
   frame = 0
   actors = {}
+  -- set btnp delay
+  poke(0x5f5d,100)
   player = actor(34, 50, 4, 8, 72, 5)
+  bullets = {}
   --other = actor(100, 64, 4, 8, 72, 5)
   --f = actor(60, 64, 4, 8, 72, 5)
   debug = {}
-  physics = {}
+
   jumping = 0
 end
 
@@ -34,6 +37,10 @@ function _update()
   do
     update_move(a)
   end
+  for b in all(bullets)
+  do
+    b.x += b.xspd
+  end
 end
 
 function _draw()
@@ -41,10 +48,14 @@ function _draw()
   map()
   local cam_x, cam_y = focus_camera(player)
   draw_ui(cam_x, cam_y)
+  select_animation(player)
   for a in all(actors)
   do
-    select_animation(a)
     a:draw()
+  end
+  for b in all(bullets)
+  do
+    b:draw()
   end
   local offset = 0
   for d in all(debug)
@@ -77,70 +88,68 @@ function resource_bar(x, y, percent, col)
   pset(x+26, y, 9)
 end
 
-function input()
-  -- on ground inputs
-  local push = btnp()
-  local held = btn()
-  jumping &= (held & UP)
-  debug[2] = jumping
-  if player.state & DOWN == DOWN
-  then
-    -- on floor
-    if held & ((player.state & LEFT) ^^ LEFT) != 0
-    then
-      actor_move_left(player)
-    end
-    if held & ((player.state & RIGHT) ^^ RIGHT) != 0
-    then
-      actor_move_right(player)
-    end
-    if push & UP == UP
-    then
-      actor_jump(player, 5.1)
-      jumping = UP
-    end
-  -- wall inputs
-  elseif player.state & (LEFT | RIGHT) != 0 and player.state & (UP | DOWN) == 0
-  then
-     -- on wall and not floor
-     if push & UP == UP
-     then
-       player.facing = -player.facing
-       player.xspd = player.facing*2
-       actor_jump(player, 6)
-     end
-     if held & (player.state & (LEFT | RIGHT)) != 0
-     then
-      player.yspd = 0
-     end
+function bitmask_to_string(value)
+  local bitmask = {}
+  for i=0,4
+  do
+    local bitvalue = value & 0b00000001
+    add(bitmask, bitvalue)
+    value = value >> 1
+  end
+  return bitmask[4] .. bitmask[3] .. bitmask[2] .. bitmask[1]
+end
 
-     if btn(0) and player.state & LEFT == LEFT
-     then
-        -- slow slide/stick left
-     elseif btn(1) and player.state & RIGHT == RIGHT
-     then
-        -- slow slide/stick right
-     end
-  elseif player.state & UP == UP
+function input()
+  -- bitmasks of inputs
+  local push = btnp()
+  local held = btn() ^^ push
+  local input = push | held
+  -- special states
+  local on_ground = player.geometry & DOWN != 0
+  local wall_stick = player.geometry & (LEFT | RIGHT) != 0 and player.geometry & (UP | DOWN) == 0
+  local ceiling = player.geometry & UP != 0
+  if on_ground
   then
-    -- touching ceiling
-  elseif player.state == 0
+    -- ground based movements
+    for dir in all({LEFT, RIGHT})
+    do
+      basic_movement[input & dir](player)
+    end
+    basic_movement[push & UP](player, 5)
+    basic_movement[held & DOWN](player)
+  elseif wall_stick
   then
-    -- in air
-    if jumping != 0 and player.yspd < 0
+    if push & UP != 0
     then
-      debug[3] = true
-      player.yspd -= .5
+      actor_jump(player, 4)
+      basic_movement[(player.geometry & (LEFT | RIGHT)) ^^ (LEFT | RIGHT)](player, 20)
     end
-    if btn(0)
-    then
-      actor_move_left(player, .7)
+    -- slide down?
+  elseif ceiling
+  then
+    -- ceiling actions, like hanging
+  else
+    for dir in all({LEFT, RIGHT})
+    do
+      basic_movement[input & dir](player, .7)
     end
-    if btn(1)
+    -- continue jumping
+    if held & UP and player.yspd < 0
     then
-      actor_move_right(player, .7)
+      actor_jump(player, abs(player.yspd - .5))
     end
   end
+  if push & 0b100000 != 0
+  then
+    actor_attack(player)
+  end
+end
+
+function actor_attack(a)
+  local a_ox = a.x - 1
+  local bullet = {x=a_ox, y=a.y, draw=draw_move, xspd=a.facing*5, yspd=0, frame=70, frames=1}
+  add(bullets, bullet)
+  a.xspd -= a.facing*2
 end
 
 -- helper functions
@@ -188,9 +197,11 @@ function actor(x, y, width, height, frame, frames, facing)
     facing=(facing != nil) and facing or 1,
     draw=draw_move,
     iframe=0,
-    state=0x00,
+    geometry=0b0000,
     jump_frames={frame+2, frame+3},
-    jumps=0
+    jumps=0,
+    attack_frames={frame+1},
+    attack=false
   }
   add(actors, a)
   return a
@@ -214,11 +225,19 @@ COLLISION_METHODS = {
 
 -- verbs
 function actor_jump(a, force)
+  if force == nil
+  then
+    force = 5
+  end
   a.yspd = -force
-  if a.state == 0
+  if a.geometry == 0
   then
     a.jumps += 1
   end
+end
+
+function actor_crouch(a, _)
+  a.xspd = abs(a.xspd) > 1 and a.xspd * .7 or 0
 end
 
 function actor_move_left(a, coefficient)
@@ -248,7 +267,7 @@ function actor_move_right(a, coefficient)
 end
 
 -- physics engine
-function actor_state(a)
+function actor_geometry(a)
   local a_ox = a.x - 1
   local sw, sh = a.width - 1, a.height - 1
   local left_x, right_x, horz_y1, horz_y2 = a_ox - a.width, a_ox + a.width, a.y - sh, a.y + sh
@@ -269,8 +288,7 @@ function actor_state(a)
   return bitmask
 end
 
-function update_move(a)
-  local e = stat(1)
+function xy_delta(a)
   local a_ox = a.x - 1
   local sw, sh = a.width - 1, a.height - 1
   if a.xspd != 0 or a.yspd != 0
@@ -300,38 +318,43 @@ function update_move(a)
     local l, c, r = sqrt(lx*lx + ly*ly), sqrt(cx*cx + cy*cy), sqrt(rx*rx + ry*ry)
     local coords = {{lx, ly}, {cx, cy}, {rx, ry}}
     local selector = (l <= r and l <= c) and 1 or (r <= l and r <= c) and 3 or 2
-    mx, my = coords[selector][1], coords[selector][2]
-    a.x += mx
-    a.y += my
+    return coords[selector][1], coords[selector][2]
   end
+  return 0, 0
+end
 
-  local state = actor_state(a)
-  local changes = state ^^ a.state  -- which sides had a change, but not what the change is
-  local collisions = changes & state  -- if we hit something and that side also changes, it must have been 0 > 1
+function update_move(a)
+  local dx, dy = xy_delta(a)
+  a.x += dx
+  a.y += dy
+
+  local geometry = actor_geometry(a)
+  local changes = geometry ^^ a.geometry  -- which sides had a change, but not what the change is
+  local collisions = changes & geometry  -- if we hit something and that side also changes, it must have been 0 > 1
   -- handle the collisions against a map
   if collisions & (DOWN | UP) != 0
   then
-    a.xspd /= max(1, abs(a.yspd))
-    a.yspd = 0
+    a.xspd /= max(1, abs(a.yspd)*.9)
+    a.yspd = max(0, -a.yspd*.25)
   end
   if collisions & (LEFT | RIGHT) != 0
   then
     a.yspd /= max(1, abs(a.xspd))
     a.xspd = 0
   end
-  -- apply gravity and air resistance
-  if state & DOWN != DOWN
+  -- apply physics based on ending position
+  if geometry & DOWN == 0
   then
-    if my == 0
-    then
-      a.y += 1
-    end
     a.xspd *= .97
-    a.yspd = min(a.yspd + 1, 4)
+    a.yspd = min(a.yspd + max(1, a.yspd*.25), 4)
+  else
+    -- floor friction
   end
-  a.state = state
-  debug[1] = stat(1) - e
-  return initial_state != a.state
+  if geometry & (LEFT | RIGHT) != 0
+  then
+    a.xspd = 0
+  end
+  a.geometry = geometry
 end
 
 -- collision
@@ -366,10 +389,10 @@ function select_animation(a)
   if a.iframe > 0
   then
     --
-  elseif a.state & DOWN == 0
+  elseif a.geometry & DOWN == 0
   then
     a.draw = draw_jump
-  elseif a.state & DOWN == DOWN
+  elseif a.geometry & DOWN == DOWN
   then
     a.draw = draw_move
   end
@@ -382,10 +405,19 @@ function draw_move(a)
 end
 
 function draw_jump(a)
-  local sprite, flip = player.yspd < 0 and player.jump_frames[1] or player.jump_frames[2], a.facing != 1
+  local sprite, flip = a.yspd < 0 and a.jump_frames[1] or a.jump_frames[2], a.facing != 1
   local ox = (flip == true) and 1 or 0
   spr(sprite, a.x - 4 - ox, a.y - 4, 1, 1, flip)
 end
+
+
+basic_movement = {
+  [0]=function(p, c) return nil end,
+  [LEFT]=actor_move_left,
+  [RIGHT]=actor_move_right,
+  [UP]=actor_jump,
+  [DOWN]=actor_crouch
+}
 
 __gfx__
 000000002222222244444444bbbbbbbb00000000000aa000d7777777d66667d666666667d6666667cccccccccccccccccc5ccccccc5cccc5f777777767766666
