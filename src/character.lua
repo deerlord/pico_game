@@ -24,6 +24,7 @@ function _init()
   --f = actor(60, 64, 4, 8, 72, 5)
   debug = {}
   physics = {}
+  jumping = 0
 end
 
 function _update()
@@ -77,29 +78,48 @@ function resource_bar(x, y, percent, col)
 end
 
 function input()
+  -- on ground inputs
+  local push = btnp()
+  local held = btn()
+  jumping &= (held & UP)
+  debug[2] = jumping
   if player.state & DOWN == DOWN
   then
     -- on floor
-    if btn(0)
+    if held & ((player.state & LEFT) ^^ LEFT) != 0
     then
       actor_move_left(player)
     end
-    if btn(1)
+    if held & ((player.state & RIGHT) ^^ RIGHT) != 0
     then
       actor_move_right(player)
     end
-    if btnp(2)
+    if push & UP == UP
     then
       actor_jump(player, 5.1)
+      jumping = UP
     end
+  -- wall inputs
   elseif player.state & (LEFT | RIGHT) != 0 and player.state & (UP | DOWN) == 0
   then
      -- on wall and not floor
-     if btnp(2)
+     if push & UP == UP
      then
        player.facing = -player.facing
        player.xspd = player.facing*2
        actor_jump(player, 6)
+     end
+     if held & (player.state & (LEFT | RIGHT)) != 0
+     then
+      player.yspd = 0
+     end
+
+     if btn(0) and player.state & LEFT == LEFT
+     then
+        -- slow slide/stick left
+     elseif btn(1) and player.state & RIGHT == RIGHT
+     then
+        -- slow slide/stick right
      end
   elseif player.state & UP == UP
   then
@@ -107,6 +127,11 @@ function input()
   elseif player.state == 0
   then
     -- in air
+    if jumping != 0 and player.yspd < 0
+    then
+      debug[3] = true
+      player.yspd -= .5
+    end
     if btn(0)
     then
       actor_move_left(player, .7)
@@ -281,25 +306,31 @@ function update_move(a)
   end
 
   local state = actor_state(a)
-  debug[2] = "init " .. state
   local changes = state ^^ a.state  -- which sides had a change, but not what the change is
   local collisions = changes & state  -- if we hit something and that side also changes, it must have been 0 > 1
-  debug[3] = "colls " .. collisions
   -- handle the collisions against a map
-  if collisions & DOWN == DOWN
+  if collisions & (DOWN | UP) != 0
   then
+    a.xspd /= max(1, abs(a.yspd))
     a.yspd = 0
+  end
+  if collisions & (LEFT | RIGHT) != 0
+  then
+    a.yspd /= max(1, abs(a.xspd))
+    a.xspd = 0
   end
   -- apply gravity and air resistance
   if state & DOWN != DOWN
   then
+    if my == 0
+    then
+      a.y += 1
+    end
     a.xspd *= .97
     a.yspd = min(a.yspd + 1, 4)
-  else
-    -- TODO: apply floor friction
   end
   a.state = state
-  debug[1] = e - stat(1)
+  debug[1] = stat(1) - e
   return initial_state != a.state
 end
 
@@ -314,6 +345,7 @@ function collision_ray(sx, sy, vx, vy, collide)
   if vx != 0 or vy != 0
   then
     local angle = atan2(vx, vy)
+    -- normalize vector
     local ix, iy, rx, ry = cos(angle), sin(angle), sx + vx, sy + vy
     for i=0,(vx != 0) and vx/ix or vy/iy
     do
